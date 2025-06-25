@@ -1,6 +1,6 @@
 # Advanced Text-to-Speech Chrome Extension
 
-A professional text-to-speech Chrome extension with advanced features including multiple voice options, speed controls, and comprehensive text processing capabilities.
+A professional text-to-speech Chrome extension with advanced features including multiple voice options, speed controls, comprehensive text processing capabilities, and a modern UI built with DaisyUI + Tailwind CSS.
 
 ## Development Setup
 
@@ -65,6 +65,8 @@ TTS-Chrome/
 - Advanced text processing
 - Keyboard shortcuts
 - Settings persistence
+- Modern UI with DaisyUI + Tailwind CSS components
+- Responsive design for popup and options pages
 
 ## Contributing
 
