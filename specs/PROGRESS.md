@@ -10,7 +10,7 @@
 
 ### Phase 1: Setup (66.7% Complete - 2/3)
 - [x] **Feature 1.1**: Basic Project Initialization ✅ *(Completed: 2024-12-25, Commit: e60cbdb)*
-- [x] **Feature 1.2**: Development Environment ✅ *(Completed: 2025-06-25, Commit: TBD)*
+- [x] **Feature 1.2**: Development Environment ✅ *(Completed: 2025-06-25, Commit: 9a52fc8)*
 - [ ] **Feature 1.3**: Minimal Extension
 
 ### Phase 2: Basic TTS (0% Complete - 0/4)
@@ -50,7 +50,7 @@
 
 ### Feature 1.2: Development Environment ✅
 - **Completed**: June 25, 2025
-- **Commit**: TBD
+- **Commit**: 9a52fc8
 - **Assignee**: Claude
 - **Duration**: Development environment setup
 - **Git Tag**: `feature-1.2-completed`
@@ -100,6 +100,7 @@
 
 ### Feature Completion Tags
 - `feature-1.1-completed` - Basic Project Initialization (e60cbdb)
+- `feature-1.2-completed` - Development Environment (9a52fc8)
 
 ### Phase Completion Tags
 *(None yet - created when all features in phase are complete)*
