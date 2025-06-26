@@ -73,6 +73,7 @@ When a feature is completed (as per Feature Completion Tracking guidelines), **a
    - Body including:
      - Summary of implemented features
      - List of key changes
+     - **Manual Testing Instructions** (see Manual Testing Guidelines below)
      - Test results confirmation
      - Reference to feature specification
 4. **Tag the feature** as completed per the Git Tag System
@@ -108,6 +109,160 @@ npm run typecheck
 - All features must go through pull requests
 - Feature branches should be deleted after merging
 - Use descriptive commit messages following conventional commits format
+
+## Manual Testing Guidelines for Pull Requests
+
+### CRITICAL REQUIREMENT: Manual Testing Instructions in Every PR
+
+Every pull request **MUST** include detailed manual testing instructions that explain:
+1. **What changed** - Visual/functional differences from before
+2. **How to test** - Step-by-step instructions to reproduce the new behavior
+3. **What to expect** - Specific outcomes, UI changes, interactions the reviewer should see
+4. **Edge cases** - Scenarios that might break or behave unexpectedly
+
+### Manual Testing Template for PR Descriptions
+
+```markdown
+## 🧪 Manual Testing Instructions
+
+### What's New/Changed
+- [Describe the visible/functional changes made]
+- [List new UI elements, behaviors, or features]
+- [Mention removed or modified functionality]
+
+### How to Test This Feature
+
+#### Setup Steps
+1. Build and load the extension: `npm run build`
+2. Load unpacked extension from `dist/` folder
+3. [Any specific setup requirements]
+
+#### Test Scenario 1: [Primary Feature Test]
+**Steps:**
+1. Go to any webpage (try: https://example.com)
+2. Select some text (try: "This is a test sentence")
+3. [Specific action - right-click, use popup, keyboard shortcut, etc.]
+
+**Expected Result:**
+- ✅ You should see: [Specific UI element/behavior]
+- ✅ You should hear: [Audio behavior if applicable]  
+- ✅ The popup should show: [Specific state/content]
+- ✅ The extension icon should: [Visual indicator changes]
+
+#### Test Scenario 2: [Edge Case/Secondary Feature]
+**Steps:**
+1. [Specific edge case steps]
+2. [Action to trigger edge case]
+
+**Expected Result:**
+- ✅ [What should happen]
+- ❌ Should NOT: [What should not happen]
+
+#### Test Scenario 3: [Integration Test]
+**Steps:**
+1. [Test how this feature works with existing features]
+
+**Expected Result:**
+- ✅ [Expected integration behavior]
+
+### Visual Changes
+- [Screenshot or description of UI changes]
+- [Before/after comparisons if applicable]
+- [New buttons, menus, dialogs, etc.]
+
+### Browser Testing
+- [ ] Tested in Chrome (primary)
+- [ ] Tested on different websites: [list specific sites tested]
+- [ ] Tested with different text types: [code blocks, tables, long text, etc.]
+```
+
+### Feature-Specific Testing Patterns
+
+#### For TTS/Audio Features
+```markdown
+**Audio Testing:**
+1. Select text: "Hello world, this is a test"
+2. Trigger TTS via [method]
+3. ✅ Should hear clear speech saying exactly: "Hello world, this is a test"
+4. ✅ Popup should show "Currently Reading: Hello world..."
+5. ✅ Play button should change to pause button
+6. ✅ Progress bar should show advancement
+```
+
+#### For UI/Popup Features  
+```markdown
+**UI Testing:**
+1. Click extension icon
+2. ✅ Popup should open with dimensions ~400x300px
+3. ✅ Should see [specific buttons/controls]
+4. ✅ Voice dropdown should show [expected voices]
+5. Click [specific button]
+6. ✅ Should see [expected visual feedback]
+```
+
+#### For Settings/Preferences Features
+```markdown
+**Settings Testing:**
+1. Open extension options page
+2. Change [specific setting] to [value]
+3. Click Save
+4. ✅ Should see confirmation message
+5. Close and reopen options
+6. ✅ Setting should persist as [value]
+7. Test the changed behavior: [specific test]
+8. ✅ Should behave according to new setting
+```
+
+#### For Context Menu Features
+```markdown
+**Context Menu Testing:**
+1. Go to any webpage
+2. Select text: "Test selection"
+3. Right-click on selection
+4. ✅ Should see context menu item: "Read This"
+5. ✅ Should see submenu: "Read This with..." (if applicable)
+6. Click "Read This"
+7. ✅ Should immediately start reading the selected text
+```
+
+### Critical Testing Requirements
+
+#### Extension Loading Test
+```markdown
+**Extension Installation Verification:**
+1. `npm run build`
+2. Load unpacked from `dist/` folder
+3. ✅ Extension should load without errors
+4. ✅ Extension icon should appear in Chrome toolbar
+5. ✅ No console errors in background page
+6. ✅ All required permissions granted
+```
+
+#### Cross-Website Compatibility
+**Test on these specific sites:**
+- Wikipedia article (complex formatting)
+- GitHub README (code blocks, mixed content)  
+- Google Docs (dynamic content)
+- Reddit thread (nested comments)
+- Medium article (rich text)
+
+### Reviewer Testing Checklist
+
+When reviewing PRs, testers should verify:
+- [ ] All manual testing steps work as described
+- [ ] Expected results match actual behavior
+- [ ] Edge cases behave correctly
+- [ ] No regressions in existing functionality
+- [ ] Extension performance remains smooth
+- [ ] UI changes look polished and intentional
+
+### Testing Documentation Standards
+
+- **Be Specific**: "Click the play button" not "start playback"
+- **Include Expected Text**: Show exact text/messages users should see
+- **Mention Timing**: "Should start immediately" or "may take 2-3 seconds"
+- **Cover Failures**: "If X doesn't work, try Y" or "Should show error message Z"
+- **Test Cleanup**: "To reset, click stop and clear queue"
 
 ## AI Documentation Context
 

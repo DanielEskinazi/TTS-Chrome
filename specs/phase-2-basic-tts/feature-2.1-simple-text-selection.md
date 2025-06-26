@@ -1,6 +1,6 @@
 # Feature 2.1: Simple Text Selection
 
-**Status: ✅ COMPLETED** | **Completed Date: 2025-06-26** | **Commit: [pending]** | **Assignee: Claude** | **Git Tag: feature-2.1-completed**
+**Status: ✅ COMPLETED** | **Completed Date: 2025-06-26** | **Commit: 7229b0a** | **Assignee: Claude** | **Git Tag: feature-2.1-completed** | **PR: #1**
 
 ## Feature Overview
 

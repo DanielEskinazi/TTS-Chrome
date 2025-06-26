@@ -14,7 +14,7 @@
 - [x] **Feature 1.3**: Minimal Extension ✅ *(Completed: 2025-06-26, Commit: e788fae)*
 
 ### Phase 2: Basic TTS (25% Complete - 1/4)
-- [x] **Feature 2.1**: Simple Text Selection ✅ *(Completed: 2025-06-26, Commit: [pending])*
+- [x] **Feature 2.1**: Simple Text Selection ✅ *(Completed: 2025-06-26, Commit: 7229b0a)*
 - [ ] **Feature 2.2**: Minimal Context Menu
 - [ ] **Feature 2.3**: Basic Speech Output
 - [ ] **Feature 2.4**: Stop Functionality
@@ -121,7 +121,7 @@
 - `feature-1.1-completed` - Basic Project Initialization (e60cbdb)
 - `feature-1.2-completed` - Development Environment (9a52fc8)
 - `feature-1.3-completed` - Minimal Extension Structure (e788fae)
-- `feature-2.1-completed` - Simple Text Selection ([pending])
+- `feature-2.1-completed` - Simple Text Selection (7229b0a)
 
 ### Phase Completion Tags
 - `phase-1-completed` - Phase 1: Setup Complete (e788fae)
@@ -133,10 +133,11 @@
 
 ### Feature 2.1: Simple Text Selection ✅
 - **Completed**: June 26, 2025
-- **Commit**: [pending]
+- **Commit**: 7229b0a
 - **Assignee**: Claude
 - **Duration**: Text selection implementation
 - **Git Tag**: `feature-2.1-completed`
+- **Pull Request**: [#1](https://github.com/DanielEskinazi/TTS-Chrome/pull/1)
 
 **Accomplishments:**
 - ✅ TextSelectionHandler class with comprehensive selection detection across HTML elements
