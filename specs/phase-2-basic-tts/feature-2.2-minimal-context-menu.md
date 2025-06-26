@@ -1,6 +1,6 @@
 # Feature 2.2: Minimal Context Menu
 
-**Status: ✅ COMPLETED** | **Completed Date: 2025-06-26** | **Commit: [pending]** | **Assignee: Claude** | **Git Tag: feature-2.2-completed**
+**Status: ✅ COMPLETED** | **Completed Date: 2025-06-26** | **Commit: c70f1d4** | **Assignee: Claude** | **Git Tag: feature-2.2-completed**
 
 ## Feature Overview
 
