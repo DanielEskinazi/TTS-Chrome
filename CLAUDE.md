@@ -9,7 +9,7 @@ This is a TypeScript-based Chrome extension for Text-to-Speech functionality wit
 ## Repository Information
 
 - **Repository**: `github.com/dany/TTS-Chrome` 
-- **Primary Branch**: `main`
+- **Primary Branch**: `develop`
 - **Development Branch Pattern**: `feature/feature-X.Y-description`
 - **Repository Type**: Chrome Extension (Manifest V3)
 - **License**: [Specify license if available]
@@ -41,7 +41,7 @@ All GitHub operations should use the MCP GitHub tools:
 ## Git Workflow and Branching Strategy
 
 ### IMPORTANT: Feature Branch Requirement
-When working on any new feature, **ALWAYS create a new feature branch** before starting development. Never work directly on the `main` branch.
+When working on any new feature, **ALWAYS create a new feature branch** before starting development. Never work directly on the `develop` branch.
 
 ### Branch Creation Using GitHub MCP Tool
 Use the GitHub MCP tool to create feature branches:
@@ -61,7 +61,7 @@ mcp__github__create_branch
 2. **Develop Feature**: Make all changes in the feature branch
 3. **Test Thoroughly**: Run tests, lint, and typecheck before creating PR
 4. **Create Pull Request**: Use `mcp__github__create_pull_request` to propose changes
-5. **Review and Merge**: After review, merge to main branch
+5. **Review and Merge**: After review, merge to develop branch
 
 ### Automatic PR Creation on Feature Completion
 When a feature is completed (as per Feature Completion Tracking guidelines), **automatically create a pull request** using the GitHub MCP tool:
@@ -96,7 +96,7 @@ npm run typecheck
 #   repo="TTS-Chrome", 
 #   title="feat: Complete Feature 2.1 - Basic TTS Implementation",
 #   head="feature/feature-2.1-basic-tts", 
-#   base="main",
+#   base="develop",
 #   body="## Summary\n- Implemented basic TTS functionality\n- Added voice selection support\n- Created message passing architecture\n\n## Changes\n- Added background service worker for TTS\n- Created content script for text selection\n- Implemented Chrome TTS API integration\n\n## Tests\n✅ All tests passing\n✅ Linting successful\n✅ Type checking passed\n\n## Feature Specification\nCompletes Feature 2.1 as defined in `specs/phase-2-core-tts/feature-2.1-basic-tts.md`"
 # )
 
@@ -105,7 +105,7 @@ npm run typecheck
 ```
 
 ### Branch Protection Rules
-- The `main` branch should be protected
+- The `develop` branch should be protected
 - All features must go through pull requests
 - Feature branches should be deleted after merging
 - Use descriptive commit messages following conventional commits format
