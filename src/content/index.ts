@@ -4,49 +4,50 @@ import { devLog } from '@common/dev-utils';
 class ContentScriptController {
   private selectedText: string = '';
   private highlightedElements: HTMLElement[] = [];
-  
+
   constructor() {
     this.initialize();
   }
-  
+
   private initialize() {
     devLog('Content script initialized on:', window.location.href);
-    
+
     // Notify background that content script is ready
     chrome.runtime.sendMessage({
       type: MessageType.CONTENT_READY,
       payload: { url: window.location.href },
     });
-    
+
     this.setupEventListeners();
     this.injectStyles();
   }
-  
+
   private setupEventListeners() {
     // Selection change listener
     document.addEventListener('selectionchange', () => {
       const selection = window.getSelection();
       this.selectedText = selection ? selection.toString().trim() : '';
     });
-    
+
     // Double-click to speak
     document.addEventListener('dblclick', (e) => {
       if (this.selectedText && e.shiftKey) {
         this.speakText(this.selectedText);
       }
     });
-    
+
     // Message listener
     chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) => {
       devLog('Content script received message:', message);
-      
+
       switch (message.type) {
         case MessageType.SPEAK_SELECTION:
           if (message.payload && typeof message.payload === 'object') {
             if ('fullPage' in message.payload && message.payload.fullPage) {
               this.speakFullPage();
             } else {
-              const text = 'text' in message.payload ? String(message.payload.text) : this.selectedText;
+              const text =
+                'text' in message.payload ? String(message.payload.text) : this.selectedText;
               this.speakText(text);
             }
           } else {
@@ -54,29 +55,29 @@ class ContentScriptController {
           }
           sendResponse({ success: true });
           break;
-          
+
         case MessageType.HIGHLIGHT_TEXT:
           if (message.payload && typeof message.payload === 'object' && 'text' in message.payload) {
             this.highlightText(String(message.payload.text));
           }
           sendResponse({ success: true });
           break;
-          
+
         case MessageType.SETTINGS_UPDATED:
           if (message.payload) {
             this.applySettings(message.payload);
           }
           sendResponse({ success: true });
           break;
-          
+
         default:
           sendResponse({ success: false, error: 'Unknown message type' });
       }
-      
+
       return true;
     });
   }
-  
+
   private injectStyles() {
     const style = document.createElement('style');
     style.textContent = `
@@ -103,51 +104,47 @@ class ContentScriptController {
     `;
     document.head.appendChild(style);
   }
-  
+
   private speakText(text: string) {
     if (!text) return;
-    
+
     chrome.runtime.sendMessage({
       type: MessageType.SPEAK_TEXT,
       payload: { text },
     });
-    
+
     // Visual feedback
     this.showSpeakingIndicator();
   }
-  
+
   private speakFullPage() {
     // Get main content (simplified version)
     const content = document.body.innerText
       .split('\n')
-      .filter(line => line.trim().length > 0)
+      .filter((line) => line.trim().length > 0)
       .join('. ');
-    
+
     this.speakText(content);
   }
-  
+
   private highlightText(searchText: string) {
     // Clear previous highlights
     this.clearHighlights();
-    
+
     if (!searchText) return;
-    
-    const walker = document.createTreeWalker(
-      document.body,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode: (node) => {
-          const parent = node.parentElement;
-          if (parent && (parent.tagName === 'SCRIPT' || parent.tagName === 'STYLE')) {
-            return NodeFilter.FILTER_REJECT;
-          }
-          return node.textContent?.includes(searchText) 
-            ? NodeFilter.FILTER_ACCEPT 
-            : NodeFilter.FILTER_REJECT;
-        },
-      }
-    );
-    
+
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => {
+        const parent = node.parentElement;
+        if (parent && (parent.tagName === 'SCRIPT' || parent.tagName === 'STYLE')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return node.textContent?.includes(searchText)
+          ? NodeFilter.FILTER_ACCEPT
+          : NodeFilter.FILTER_REJECT;
+      },
+    });
+
     let node: Node | null;
     while ((node = walker.nextNode())) {
       const parent = node.parentElement;
@@ -157,14 +154,14 @@ class ContentScriptController {
       }
     }
   }
-  
+
   private clearHighlights() {
-    this.highlightedElements.forEach(el => {
+    this.highlightedElements.forEach((el) => {
       el.classList.remove('tts-highlight');
     });
     this.highlightedElements = [];
   }
-  
+
   private showSpeakingIndicator() {
     const indicator = document.createElement('div');
     indicator.style.cssText = `
@@ -182,22 +179,19 @@ class ContentScriptController {
     `;
     indicator.textContent = '🔊 Speaking...';
     indicator.classList.add('tts-pulse');
-    
+
     document.body.appendChild(indicator);
-    
+
     setTimeout(() => {
       indicator.remove();
     }, 3000);
   }
-  
+
   private applySettings(settings: Record<string, unknown>) {
     if (settings.fontSize && typeof settings.fontSize === 'number') {
-      document.documentElement.style.setProperty(
-        '--tts-font-size',
-        `${settings.fontSize}px`
-      );
+      document.documentElement.style.setProperty('--tts-font-size', `${settings.fontSize}px`);
     }
-    
+
     if (settings.theme && typeof settings.theme === 'string') {
       document.documentElement.setAttribute('data-tts-theme', settings.theme);
     }

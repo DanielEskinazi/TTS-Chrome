@@ -95,7 +95,7 @@ body {
   font-weight: 500;
 }
 
-.toggle-label input[type="checkbox"] {
+.toggle-label input[type='checkbox'] {
   display: none;
 }
 
@@ -121,11 +121,11 @@ body {
   transition: transform 0.3s;
 }
 
-.toggle-label input[type="checkbox"]:checked + .toggle-switch {
+.toggle-label input[type='checkbox']:checked + .toggle-switch {
   background: #2196f3;
 }
 
-.toggle-label input[type="checkbox"]:checked + .toggle-switch::before {
+.toggle-label input[type='checkbox']:checked + .toggle-switch::before {
   transform: translateX(24px);
 }
 
@@ -135,7 +135,7 @@ body {
   gap: 16px;
 }
 
-.range-container input[type="range"] {
+.range-container input[type='range'] {
   flex: 1;
   max-width: 250px;
 }

@@ -1,0 +1,227 @@
+name: Security Scanning
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '45 15 * * 3'  # Weekly on Wednesdays at 15:45 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  dependency-scan:
+    name: Dependency Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run npm audit
+        run: |
+          npm audit --json > npm-audit.json || true
+          if [ -s npm-audit.json ]; then
+            echo "📋 NPM Audit Report:"
+            npm audit
+          fi
+      
+      - name: Check for critical vulnerabilities
+        run: |
+          CRITICAL=$(npm audit --json | jq '.metadata.vulnerabilities.critical // 0')
+          HIGH=$(npm audit --json | jq '.metadata.vulnerabilities.high // 0')
+          
+          echo "🔍 Vulnerability Summary:"
+          echo "- Critical: $CRITICAL"
+          echo "- High: $HIGH"
+          
+          if [ "$CRITICAL" -gt 0 ]; then
+            echo "❌ Critical vulnerabilities found!"
+            exit 1
+          fi
+          
+          if [ "$HIGH" -gt 3 ]; then
+            echo "⚠️ Too many high vulnerabilities found!"
+            exit 1
+          fi
+  
+  eslint-security:
+    name: ESLint Security Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install --save-dev @microsoft/eslint-formatter-sarif
+      
+      - name: Run ESLint with SARIF output
+        run: |
+          npx eslint src/ \
+            --ext .ts,.tsx,.js,.jsx \
+            -f @microsoft/eslint-formatter-sarif \
+            -o eslint-results.sarif || true
+      
+      - name: Upload SARIF results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: eslint-results.sarif
+          category: eslint
+  
+  permissions-audit:
+    name: Chrome Extension Permissions Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build extension
+        run: npm run build
+      
+      - name: Audit manifest permissions
+        run: |
+          echo "🔐 Chrome Extension Permissions Audit"
+          echo "===================================="
+          
+          node -e "
+            const fs = require('fs');
+            const manifest = require('./dist/manifest.json');
+            
+            console.log('📋 Manifest Version:', manifest.manifest_version);
+            console.log('📱 Extension Name:', manifest.name);
+            console.log('🔢 Version:', manifest.version);
+            console.log('');
+            
+            console.log('🔑 Permissions:');
+            if (manifest.permissions) {
+              manifest.permissions.forEach(p => console.log('  -', p));
+            }
+            
+            console.log('');
+            console.log('🌐 Host Permissions:');
+            if (manifest.host_permissions) {
+              manifest.host_permissions.forEach(h => console.log('  -', h));
+            }
+            
+            console.log('');
+            console.log('📌 Content Scripts:');
+            if (manifest.content_scripts) {
+              manifest.content_scripts.forEach((cs, i) => {
+                console.log('  Script', i + 1, ':');
+                console.log('    Matches:', cs.matches.join(', '));
+                console.log('    JS:', cs.js.join(', '));
+              });
+            }
+            
+            // Security checks
+            console.log('');
+            console.log('🔒 Security Checks:');
+            
+            // Check for overly broad permissions
+            const riskyPermissions = ['<all_urls>', '*://*/*', 'http://*/*'];
+            const hasRiskyPerms = manifest.host_permissions?.some(p => 
+              riskyPermissions.includes(p)
+            );
+            
+            if (hasRiskyPerms) {
+              console.log('  ⚠️  WARNING: Overly broad host permissions detected!');
+            } else {
+              console.log('  ✅ Host permissions are appropriately scoped');
+            }
+            
+            // Check for dangerous APIs
+            const dangerousApis = ['webRequest', 'webRequestBlocking', 'proxy', 'debugger'];
+            const hasDangerousApis = manifest.permissions?.some(p => 
+              dangerousApis.includes(p)
+            );
+            
+            if (hasDangerousApis) {
+              console.log('  ⚠️  WARNING: Potentially dangerous API permissions detected!');
+            } else {
+              console.log('  ✅ No dangerous API permissions found');
+            }
+          "
+  
+  license-check:
+    name: License Compliance Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Check licenses
+        run: |
+          npx license-checker --production --summary --excludePrivatePackages > license-summary.txt
+          echo "📜 License Summary:"
+          cat license-summary.txt
+          
+          # Check for problematic licenses
+          npx license-checker --production --onlyAllow "MIT;Apache-2.0;BSD-3-Clause;BSD-2-Clause;ISC;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Unlicense" || {
+            echo "⚠️  Non-standard licenses detected. Please review."
+          }
+  
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [dependency-scan, eslint-security, permissions-audit, license-check]
+    if: always()
+    
+    steps:
+      - name: Generate security report
+        run: |
+          echo "🔒 Security Scan Summary"
+          echo "======================="
+          echo ""
+          echo "✅ All security scans completed"
+          echo ""
+          echo "📊 Results:"
+          echo "- Dependency scan: ${{ needs.dependency-scan.result }}"
+          echo "- ESLint security: ${{ needs.eslint-security.result }}"
+          echo "- Permissions audit: ${{ needs.permissions-audit.result }}"
+          echo "- License check: ${{ needs.license-check.result }}"
+          echo ""
+          echo "View detailed results in the workflow run logs."

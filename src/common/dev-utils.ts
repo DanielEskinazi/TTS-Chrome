@@ -40,13 +40,13 @@ export const viewStorage = async (): Promise<void> => {
 // Development-only performance monitor
 export const perfMonitor = {
   marks: new Map<string, number>(),
-  
+
   start(label: string): void {
     if (isDevelopment) {
       this.marks.set(label, performance.now());
     }
   },
-  
+
   end(label: string): void {
     if (isDevelopment) {
       const start = this.marks.get(label);
@@ -57,13 +57,13 @@ export const perfMonitor = {
       }
     }
   },
-  
+
   measure(fn: () => void | Promise<void>, label: string): void | Promise<void> {
     if (!isDevelopment) return fn();
-    
+
     this.start(label);
     const result = fn();
-    
+
     if (result instanceof Promise) {
       return result.finally(() => this.end(label));
     } else {

@@ -4,7 +4,7 @@ import { devLog } from '@common/dev-utils';
 // Service worker lifecycle
 chrome.runtime.onInstalled.addListener((details) => {
   devLog('Extension installed:', details.reason);
-  
+
   // Set default values on install
   if (details.reason === 'install') {
     chrome.storage.sync.set({
@@ -13,7 +13,7 @@ chrome.runtime.onInstalled.addListener((details) => {
       fontSize: 16,
     });
   }
-  
+
   // Create context menu items
   chrome.contextMenus.create({
     id: 'tts-speak',
@@ -26,12 +26,12 @@ chrome.runtime.onInstalled.addListener((details) => {
 chrome.runtime.onMessage.addListener(
   (message: Message, sender, sendResponse: (response: MessageResponse) => void) => {
     devLog('Background received message:', message, 'from:', sender);
-    
+
     switch (message.type) {
       case MessageType.GET_STATE:
         handleGetState(sendResponse);
         return true; // Will respond asynchronously
-        
+
       case MessageType.UPDATE_SETTINGS:
         if (message.payload) {
           handleUpdateSettings(message.payload, sendResponse);
@@ -39,7 +39,7 @@ chrome.runtime.onMessage.addListener(
           sendResponse({ success: false, error: 'No settings provided' });
         }
         return true;
-        
+
       case MessageType.SPEAK_TEXT:
         if (message.payload && typeof message.payload === 'object' && 'text' in message.payload) {
           handleSpeakText(message.payload as { text: string }, sendResponse);
@@ -47,7 +47,7 @@ chrome.runtime.onMessage.addListener(
           sendResponse({ success: false, error: 'No text provided' });
         }
         return true;
-        
+
       default:
         sendResponse({ success: false, error: 'Unknown message type' });
         return false;

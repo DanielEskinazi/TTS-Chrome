@@ -1,0 +1,241 @@
+name: Performance Monitoring
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  bundle-analysis:
+    name: Bundle Size Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build extension
+        run: npm run build
+      
+      - name: Analyze bundle sizes
+        id: bundle
+        run: |
+          echo "📦 Bundle Size Analysis"
+          echo "====================="
+          echo ""
+          
+          # Calculate individual file sizes
+          echo "📄 Individual Files:"
+          find dist -name "*.js" -o -name "*.css" | while read file; do
+            SIZE=$(du -h "$file" | cut -f1)
+            echo "  - ${file#dist/}: $SIZE"
+          done
+          
+          echo ""
+          echo "📊 Category Breakdown:"
+          
+          # JavaScript files
+          JS_SIZE=$(find dist -name "*.js" -exec du -ch {} + | grep total$ | cut -f1)
+          echo "  - JavaScript: ${JS_SIZE:-0}"
+          
+          # CSS files
+          CSS_SIZE=$(find dist -name "*.css" -exec du -ch {} + | grep total$ | cut -f1 || echo "0")
+          echo "  - CSS: ${CSS_SIZE:-0}"
+          
+          # HTML files
+          HTML_SIZE=$(find dist -name "*.html" -exec du -ch {} + | grep total$ | cut -f1 || echo "0")
+          echo "  - HTML: ${HTML_SIZE:-0}"
+          
+          # Images and icons
+          IMG_SIZE=$(find dist -name "*.png" -o -name "*.jpg" -o -name "*.svg" -exec du -ch {} + | grep total$ | cut -f1 || echo "0")
+          echo "  - Images: ${IMG_SIZE:-0}"
+          
+          # Total size
+          TOTAL_SIZE=$(du -sh dist | cut -f1)
+          echo ""
+          echo "📈 Total Size: $TOTAL_SIZE"
+          
+          # Store for later use
+          echo "total_size=$TOTAL_SIZE" >> $GITHUB_OUTPUT
+          
+          # Check size limits
+          TOTAL_KB=$(du -sk dist | cut -f1)
+          echo "total_kb=$TOTAL_KB" >> $GITHUB_OUTPUT
+          
+          if [ "$TOTAL_KB" -gt 2048 ]; then
+            echo ""
+            echo "⚠️  WARNING: Bundle size exceeds 2MB limit!"
+            echo "size_warning=true" >> $GITHUB_OUTPUT
+          else
+            echo ""
+            echo "✅ Bundle size is within limits"
+            echo "size_warning=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Generate size report
+        run: |
+          cat > size-report.json << EOF
+          {
+            "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "commit": "${{ github.sha }}",
+            "branch": "${{ github.ref_name }}",
+            "total_size": "${{ steps.bundle.outputs.total_size }}",
+            "total_kb": ${{ steps.bundle.outputs.total_kb }},
+            "files": $(find dist -name "*.js" -o -name "*.css" | jq -R -s -c 'split("\n")[:-1]')
+          }
+          EOF
+      
+      - name: Upload size report
+        uses: actions/upload-artifact@v4
+        with:
+          name: size-report-${{ github.sha }}
+          path: size-report.json
+  
+  build-performance:
+    name: Build Performance
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: |
+          START_TIME=$(date +%s)
+          npm ci
+          END_TIME=$(date +%s)
+          INSTALL_TIME=$((END_TIME - START_TIME))
+          echo "📦 Install time: ${INSTALL_TIME}s"
+          echo "install_time=$INSTALL_TIME" >> $GITHUB_ENV
+      
+      - name: Measure build time
+        run: |
+          START_TIME=$(date +%s)
+          npm run build
+          END_TIME=$(date +%s)
+          BUILD_TIME=$((END_TIME - START_TIME))
+          echo "🏗️ Build time: ${BUILD_TIME}s"
+          echo "build_time=$BUILD_TIME" >> $GITHUB_ENV
+      
+      - name: Performance summary
+        run: |
+          echo "⏱️ Performance Metrics"
+          echo "===================="
+          echo ""
+          echo "📊 Timing:"
+          echo "  - npm install: ${{ env.install_time }}s"
+          echo "  - npm build: ${{ env.build_time }}s"
+          echo "  - Total: $((${{ env.install_time }} + ${{ env.build_time }}))s"
+          echo ""
+          
+          # Performance checks
+          if [ "${{ env.build_time }}" -gt 60 ]; then
+            echo "⚠️  Build time exceeds 1 minute threshold"
+          else
+            echo "✅ Build time is acceptable"
+          fi
+  
+  lighthouse-audit:
+    name: Lighthouse Performance Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build extension
+        run: npm run build
+      
+      - name: Analyze popup performance
+        run: |
+          echo "🏃 Popup Performance Analysis"
+          echo "=========================="
+          echo ""
+          
+          # Check popup HTML size
+          if [ -f dist/popup.html ]; then
+            POPUP_SIZE=$(du -h dist/popup.html | cut -f1)
+            echo "📄 Popup HTML size: $POPUP_SIZE"
+          fi
+          
+          # Check popup JS size
+          if [ -f dist/popup.js ]; then
+            POPUP_JS_SIZE=$(du -h dist/popup.js | cut -f1)
+            echo "📜 Popup JS size: $POPUP_JS_SIZE"
+          fi
+          
+          # Check for large dependencies
+          echo ""
+          echo "🔍 Checking for large dependencies..."
+          find dist -name "*.js" -size +100k | while read file; do
+            SIZE=$(du -h "$file" | cut -f1)
+            echo "  ⚠️  Large file: ${file#dist/} ($SIZE)"
+          done
+  
+  pr-comment:
+    name: Performance Report Comment
+    runs-on: ubuntu-latest
+    needs: [bundle-analysis, build-performance]
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Download size report
+        uses: actions/download-artifact@v4
+        with:
+          name: size-report-${{ github.sha }}
+      
+      - name: Comment PR with performance metrics
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const sizeReport = JSON.parse(fs.readFileSync('size-report.json', 'utf8'));
+            
+            const message = `## 📊 Performance Report
+            
+            ### Bundle Size Analysis
+            - **Total Size**: ${sizeReport.total_size}
+            - **Status**: ${sizeReport.total_kb > 2048 ? '⚠️ Exceeds 2MB limit' : '✅ Within limits'}
+            
+            ### Build Performance
+            - **Build Status**: ✅ Completed successfully
+            - **Artifacts**: Available for download
+            
+            View the [full performance report](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });

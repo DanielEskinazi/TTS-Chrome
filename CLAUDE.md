@@ -22,6 +22,77 @@ This is a TypeScript-based Chrome extension for Text-to-Speech functionality wit
 3. Enable "Developer mode"
 4. Click "Load unpacked" → select `dist/` folder
 
+## Git Workflow and Branching Strategy
+
+### IMPORTANT: Feature Branch Requirement
+When working on any new feature, **ALWAYS create a new feature branch** before starting development. Never work directly on the `main` branch.
+
+### Branch Creation Using GitHub MCP Tool
+Use the GitHub MCP tool to create feature branches:
+
+```
+mcp__github__create_branch
+```
+
+**Branch Naming Convention:**
+- Feature branches: `feature/feature-X.Y-description` (e.g., `feature/feature-2.1-basic-tts`)
+- Bug fixes: `fix/issue-description`
+- Improvements: `improve/improvement-description`
+- Experimental: `experimental/experiment-description`
+
+### Development Workflow
+1. **Create Feature Branch**: Use `mcp__github__create_branch` with appropriate naming
+2. **Develop Feature**: Make all changes in the feature branch
+3. **Test Thoroughly**: Run tests, lint, and typecheck before creating PR
+4. **Create Pull Request**: Use `mcp__github__create_pull_request` to propose changes
+5. **Review and Merge**: After review, merge to main branch
+
+### Automatic PR Creation on Feature Completion
+When a feature is completed (as per Feature Completion Tracking guidelines), **automatically create a pull request** using the GitHub MCP tool:
+
+1. **Ensure all tests pass** and code is properly linted
+2. **Push all commits** to the feature branch
+3. **Create PR immediately** with:
+   - Descriptive title: `feat: Complete Feature X.Y - [Feature Name]`
+   - Body including:
+     - Summary of implemented features
+     - List of key changes
+     - Test results confirmation
+     - Reference to feature specification
+4. **Tag the feature** as completed per the Git Tag System
+
+### Example Workflow with Automatic PR Creation
+```bash
+# 1. Create a new feature branch using MCP tool
+# mcp__github__create_branch(owner="username", repo="TTS-Chrome", branch="feature/feature-2.1-basic-tts")
+
+# 2. Work on the feature, make commits
+
+# 3. Run tests and checks
+npm test
+npm run lint
+npm run typecheck
+
+# 4. Upon feature completion, automatically create PR using MCP tool
+# mcp__github__create_pull_request(
+#   owner="username", 
+#   repo="TTS-Chrome", 
+#   title="feat: Complete Feature 2.1 - Basic TTS Implementation",
+#   head="feature/feature-2.1-basic-tts", 
+#   base="main",
+#   body="## Summary\n- Implemented basic TTS functionality\n- Added voice selection support\n- Created message passing architecture\n\n## Changes\n- Added background service worker for TTS\n- Created content script for text selection\n- Implemented Chrome TTS API integration\n\n## Tests\n✅ All tests passing\n✅ Linting successful\n✅ Type checking passed\n\n## Feature Specification\nCompletes Feature 2.1 as defined in `specs/phase-2-core-tts/feature-2.1-basic-tts.md`"
+# )
+
+# 5. Create git tag for completed feature
+# git tag feature-2.1-completed
+```
+
+### Branch Protection Rules
+- The `main` branch should be protected
+- All features must go through pull requests
+- Feature branches should be deleted after merging
+- Use descriptive commit messages following conventional commits format
+
 ## AI Documentation Context
 
 ### Required Context Loading
