@@ -1,5 +1,6 @@
 import { MessageType, Message, MessageResponse } from '@common/types/messages';
-import { devLog } from '@common/dev-utils';
+// Temporary debug logging - replace devLog with console.log for debugging
+const debugLog = (...args: unknown[]) => console.log('[TTS-Debug]', ...args);
 
 interface SelectionData {
   text: string;
@@ -21,7 +22,7 @@ class SelectionManager {
     chrome.tabs.onActivated.addListener(this.handleTabChange.bind(this));
     chrome.tabs.onUpdated.addListener(this.handleTabUpdate.bind(this));
     
-    devLog('Selection Manager initialized');
+    debugLog('Selection Manager initialized');
   }
 
   public handleSelectionMessage(request: Message, sender: chrome.runtime.MessageSender): Record<string, unknown> | null {
@@ -44,7 +45,7 @@ class SelectionManager {
         
       case MessageType.SELECTION_ERROR:
         if (request.payload) {
-          devLog('Selection error reported:', request.payload);
+          debugLog('Selection error reported:', request.payload);
         }
         return { success: true };
         
@@ -67,7 +68,7 @@ class SelectionManager {
       // Update context menu state
       this.updateContextMenuState();
       
-      devLog('Selection updated:', this.currentSelection.text.substring(0, 50) + '...');
+      debugLog('Selection updated:', this.currentSelection.text.substring(0, 50) + '...');
     }
   }
 
@@ -78,20 +79,22 @@ class SelectionManager {
     // Update context menu state
     this.updateContextMenuState();
     
-    devLog('Selection cleared');
+    debugLog('Selection cleared');
   }
 
   private updateContextMenuState() {
     const hasSelection = this.currentSelection !== null;
     
-    // Update context menu visibility/state
+    // Update context menu visibility/state with safety check
     try {
-      chrome.contextMenus.update('tts-speak', {
-        enabled: hasSelection,
-        title: hasSelection ? 'Speak Selected Text' : 'Speak Selected Text (No selection)'
-      });
+      if (chrome.contextMenus && chrome.contextMenus.update) {
+        chrome.contextMenus.update('tts-speak', {
+          enabled: hasSelection,
+          title: hasSelection ? 'Speak Selected Text' : 'Speak Selected Text (No selection)'
+        });
+      }
     } catch (error) {
-      devLog('Error updating context menu:', error);
+      debugLog('Error updating context menu:', error);
     }
   }
 
@@ -121,41 +124,65 @@ class SelectionManager {
   }
 }
 
-// Initialize selection manager
-const selectionManager = new SelectionManager();
+// Initialize selection manager with error handling
+let selectionManager: SelectionManager;
+try {
+  selectionManager = new SelectionManager();
+  console.log('Background script loaded and ready');
+  debugLog('Service worker started successfully');
+} catch (error) {
+  console.error('Failed to initialize background script:', error);
+  debugLog('Service worker initialization failed:', error);
+}
 
 // Service worker lifecycle
 chrome.runtime.onInstalled.addListener((details) => {
-  devLog('Extension installed:', details.reason);
+  debugLog('Extension installed:', details.reason);
 
   // Set default values on install
   if (details.reason === 'install') {
-    chrome.storage.sync.set({
-      enabled: true,
-      theme: 'light',
-      fontSize: 16,
-    });
+    try {
+      chrome.storage.sync.set({
+        enabled: true,
+        theme: 'light',
+        fontSize: 16,
+      });
+    } catch (error) {
+      debugLog('Error setting default storage values:', error);
+    }
   }
 
-  // Create context menu items
-  chrome.contextMenus.create({
-    id: 'tts-speak',
-    title: 'Speak Selected Text',
-    contexts: ['selection'],
-    enabled: false, // Initially disabled until text is selected
-  });
+  // Create context menu items with safety check
+  try {
+    if (chrome.contextMenus && chrome.contextMenus.create) {
+      chrome.contextMenus.create({
+        id: 'tts-speak',
+        title: 'Speak Selected Text',
+        contexts: ['selection'],
+        enabled: false, // Initially disabled until text is selected
+      });
+      debugLog('Context menu created successfully');
+    } else {
+      debugLog('Warning: chrome.contextMenus API not available');
+    }
+  } catch (error) {
+    debugLog('Error creating context menu:', error);
+  }
 });
 
 // Message handler
 chrome.runtime.onMessage.addListener(
   (message: Message, sender, sendResponse: (response: MessageResponse) => void) => {
-    devLog('Background received message:', message, 'from:', sender);
+    console.log('Background received message:', message, 'from:', sender);
+    debugLog('Background received message:', message, 'from:', sender);
 
-    // Try selection manager first
-    const selectionResponse = selectionManager.handleSelectionMessage(message, sender);
-    if (selectionResponse !== null) {
-      sendResponse({ success: true, data: selectionResponse });
-      return true;
+    // Try selection manager first (with safety check)
+    if (selectionManager) {
+      const selectionResponse = selectionManager.handleSelectionMessage(message, sender);
+      if (selectionResponse !== null) {
+        sendResponse({ success: true, data: selectionResponse });
+        return true;
+      }
     }
 
     // Handle other message types
@@ -192,30 +219,42 @@ chrome.runtime.onMessage.addListener(
   }
 );
 
-// Context menu handler
-chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === 'tts-speak' && tab?.id) {
-    // Use current selection from selection manager or fallback to context menu selection
-    const currentSelectionText = selectionManager.getSelectionText();
-    const textToSpeak = currentSelectionText || info.selectionText;
-    
-    if (textToSpeak) {
-      chrome.tabs.sendMessage(tab.id, {
-        type: MessageType.SPEAK_SELECTION,
-        payload: { text: textToSpeak },
-      });
+// Context menu handler with safety check
+if (chrome.contextMenus && chrome.contextMenus.onClicked) {
+  chrome.contextMenus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId === 'tts-speak' && tab?.id) {
+      // Use current selection from selection manager or fallback to context menu selection
+      const currentSelectionText = selectionManager?.getSelectionText() || '';
+      const textToSpeak = currentSelectionText || info.selectionText;
+      
+      if (textToSpeak) {
+        chrome.tabs.sendMessage(tab.id, {
+          type: MessageType.SPEAK_SELECTION,
+          payload: { text: textToSpeak },
+        });
+      }
     }
-  }
-});
+  });
+} else {
+  debugLog('Warning: chrome.contextMenus.onClicked not available');
+}
 
-// Alarm for periodic tasks
-chrome.alarms.create('heartbeat', { periodInMinutes: 1 });
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'heartbeat') {
-    devLog('Heartbeat alarm triggered');
-    // Perform periodic tasks
+// Alarm for periodic tasks with safety check
+try {
+  if (chrome.alarms && chrome.alarms.create) {
+    chrome.alarms.create('heartbeat', { periodInMinutes: 1 });
+    chrome.alarms.onAlarm.addListener((alarm) => {
+      if (alarm.name === 'heartbeat') {
+        debugLog('Heartbeat alarm triggered');
+        // Perform periodic tasks
+      }
+    });
+  } else {
+    debugLog('Warning: chrome.alarms API not available');
   }
-});
+} catch (error) {
+  debugLog('Error setting up alarms:', error);
+}
 
 // Handler functions
 async function handleGetState(sendResponse: (response: MessageResponse) => void) {
@@ -254,24 +293,50 @@ async function handleSpeakText(
   sendResponse: (response: MessageResponse) => void
 ) {
   try {
-    await chrome.tts.speak(payload.text, {
+    debugLog('handleSpeakText called with payload:', payload);
+    
+    // Check if TTS API is available
+    if (!chrome.tts) {
+      const error = 'TTS API not available';
+      debugLog('Error:', error);
+      sendResponse({ success: false, error });
+      return;
+    }
+    
+    // Check if we have voices available
+    chrome.tts.getVoices((voices) => {
+      debugLog('Available TTS voices:', voices.length);
+      if (voices.length === 0) {
+        debugLog('Warning: No TTS voices available');
+      } else {
+        debugLog('Sample voices:', voices.slice(0, 3).map(v => v.voiceName));
+      }
+    });
+    
+    debugLog('Calling chrome.tts.speak with text:', payload.text.substring(0, 50) + '...');
+    
+    // Simplified TTS call to avoid callback issues that might crash the service worker
+    chrome.tts.speak(payload.text, {
       rate: 1.0,
       pitch: 1.0,
       volume: 1.0,
-      onEvent: (event) => {
-        devLog('TTS Event:', event);
-      },
     });
+    
+    // Send immediate success response
+    debugLog('TTS speak called successfully');
     sendResponse({ success: true });
+    
   } catch (error) {
-    sendResponse({ success: false, error: (error as Error).message });
+    const errorMessage = (error as Error).message;
+    debugLog('Exception in handleSpeakText:', error);
+    sendResponse({ success: false, error: errorMessage });
   }
 }
 
 // Keep service worker alive
 chrome.runtime.onConnect.addListener((port) => {
-  devLog('Port connected:', port.name);
+  debugLog('Port connected:', port.name);
   port.onDisconnect.addListener(() => {
-    devLog('Port disconnected:', port.name);
+    debugLog('Port disconnected:', port.name);
   });
 });

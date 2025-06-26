@@ -71,21 +71,8 @@ module.exports = (env, argv) => {
     
     optimization: {
       minimize: isProduction,
-      splitChunks: {
-        chunks: 'all',
-        cacheGroups: {
-          vendor: {
-            test: /[\\/]node_modules[\\/]/,
-            name: 'vendor',
-            priority: 10,
-          },
-          common: {
-            minChunks: 2,
-            priority: 5,
-            reuseExistingChunk: true,
-          },
-        },
-      },
+      // Disable splitChunks for extension compatibility
+      splitChunks: false,
     },
     
     // Disable performance hints in development

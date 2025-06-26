@@ -41,6 +41,7 @@ class TextSelectionHandler {
     chrome.runtime.onMessage.addListener(this.handleMessage.bind(this));
     
     devLog('TTS Text Selection Handler initialized');
+    console.log('🔊 TTS Text Selection Handler initialized - Extension is working!');
   }
 
   private handleSelectionChange() {
@@ -105,6 +106,7 @@ class TextSelectionHandler {
       
       // Notify background script of new selection
       this.notifySelectionChange();
+      console.log('📝 Text selected:', this.selectionText.substring(0, 50) + '...');
     }
   }
 
