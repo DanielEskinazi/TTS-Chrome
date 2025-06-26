@@ -12,9 +12,14 @@ interface SelectionData {
 class SelectionManager {
   private currentSelection: SelectionData | null = null;
   private activeTab: chrome.tabs.Tab | null = null;
+  private contextMenuManager: ContextMenuManager | null = null;
 
   constructor() {
     this.init();
+  }
+
+  public setContextMenuManager(contextMenuManager: ContextMenuManager) {
+    this.contextMenuManager = contextMenuManager;
   }
 
   private init() {
@@ -85,16 +90,9 @@ class SelectionManager {
   private updateContextMenuState() {
     const hasSelection = this.currentSelection !== null;
     
-    // Update context menu visibility/state with safety check
-    try {
-      if (chrome.contextMenus && chrome.contextMenus.update) {
-        chrome.contextMenus.update('tts-speak', {
-          enabled: hasSelection,
-          title: hasSelection ? 'Speak Selected Text' : 'Speak Selected Text (No selection)'
-        });
-      }
-    } catch (error) {
-      debugLog('Error updating context menu:', error);
+    // Update context menu state using the ContextMenuManager
+    if (this.contextMenuManager) {
+      this.contextMenuManager.updateMenuState(hasSelection);
     }
   }
 
@@ -124,10 +122,265 @@ class SelectionManager {
   }
 }
 
-// Initialize selection manager with error handling
+class ContextMenuManager {
+  private menuId = 'tts-speak';
+  private isMenuCreated = false;
+  private selectionManager: SelectionManager;
+
+  constructor(selectionManager: SelectionManager) {
+    this.selectionManager = selectionManager;
+    this.init();
+  }
+
+  private init() {
+    // Create context menu when extension loads
+    chrome.runtime.onStartup.addListener(() => this.createContextMenu());
+    chrome.runtime.onInstalled.addListener(() => this.createContextMenu());
+    
+    // Listen for context menu clicks
+    if (chrome.contextMenus && chrome.contextMenus.onClicked) {
+      chrome.contextMenus.onClicked.addListener(this.handleMenuClick.bind(this));
+    }
+    
+    debugLog('Context Menu Manager initialized');
+  }
+
+  public createContextMenu() {
+    try {
+      if (chrome.contextMenus) {
+        // Remove existing menu if present
+        if (this.isMenuCreated) {
+          chrome.contextMenus.removeAll(() => {
+            this.createMenu();
+          });
+        } else {
+          this.createMenu();
+        }
+      } else {
+        debugLog('Warning: chrome.contextMenus API not available');
+      }
+    } catch (error) {
+      debugLog('Error in createContextMenu:', error);
+    }
+  }
+
+  private createMenu() {
+    chrome.contextMenus.create({
+      id: this.menuId,
+      title: 'Speak',
+      contexts: ['selection'],
+      enabled: false, // Initially disabled
+      documentUrlPatterns: ['http://*/*', 'https://*/*']
+    }, () => {
+      if (chrome.runtime.lastError) {
+        debugLog('Error creating context menu:', chrome.runtime.lastError);
+      } else {
+        this.isMenuCreated = true;
+        debugLog('TTS context menu created successfully');
+        this.syncMenuWithCurrentState();
+      }
+    });
+  }
+
+  private async syncMenuWithCurrentState() {
+    try {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      if (activeTab && activeTab.id) {
+        chrome.tabs.sendMessage(activeTab.id, { type: MessageType.GET_SELECTION })
+          .then(response => {
+            if (response && response.hasSelection) {
+              this.updateMenuState(true);
+            }
+          })
+          .catch(error => {
+            debugLog('Could not sync menu state:', error);
+          });
+      }
+    } catch (error) {
+      debugLog('Error syncing menu state:', error);
+    }
+  }
+
+  private async handleMenuClick(info: chrome.contextMenus.OnClickData, tab?: chrome.tabs.Tab) {
+    if (info.menuItemId === this.menuId && tab?.id) {
+      await this.triggerTTS(info, tab);
+    }
+  }
+
+  private async triggerTTS(info: chrome.contextMenus.OnClickData, tab: chrome.tabs.Tab) {
+    try {
+      // Validate tab and selection
+      if (!tab || !tab.id) {
+        throw new Error('Invalid tab information');
+      }
+
+      // Get fresh selection data
+      const response = await this.getSelectionFromTab(tab.id);
+      
+      if (!response || !response.hasSelection) {
+        // Fallback to context menu selection text
+        if (!info.selectionText) {
+          throw new Error('No text selected');
+        }
+      }
+
+      const textToSpeak = response?.text || info.selectionText || '';
+      
+      // Validate text content
+      if (!textToSpeak || !this.isValidTextForTTS(textToSpeak)) {
+        throw new Error('Selected text is not suitable for TTS');
+      }
+
+      // Start TTS with retry logic
+      await this.startTTSWithRetry(textToSpeak, tab);
+      
+      this.showTTSFeedback(tab, 'started');
+      
+    } catch (error) {
+      debugLog('TTS trigger error:', error);
+      this.handleTTSError(error as Error, tab);
+    }
+  }
+
+  private async getSelectionFromTab(tabId: number, retries = 2): Promise<{ hasSelection: boolean; text?: string; info?: unknown }> {
+    for (let i = 0; i <= retries; i++) {
+      try {
+        const response = await chrome.tabs.sendMessage(tabId, {
+          type: MessageType.GET_SELECTION
+        });
+        return response;
+      } catch (error) {
+        if (i === retries) {
+          throw new Error('Could not communicate with tab');
+        }
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+    // This should never be reached, but TypeScript needs it
+    throw new Error('Could not communicate with tab');
+  }
+
+  private isValidTextForTTS(text: string): boolean {
+    if (!text || typeof text !== 'string') return false;
+    
+    const cleanText = text.trim();
+    if (cleanText.length === 0) return false;
+    if (cleanText.length > 10000) return false; // Reasonable limit
+    
+    // Check for readable content
+    const readableChars = cleanText.replace(/[^\w\s]/g, '').length;
+    return readableChars > 0;
+  }
+
+  private async startTTSWithRetry(text: string, tab: chrome.tabs.Tab, retries = 1): Promise<void> {
+    for (let i = 0; i <= retries; i++) {
+      try {
+        return await this.startTTS(text, tab);
+      } catch (error) {
+        if (i === retries) {
+          throw error;
+        }
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    }
+  }
+
+  private async startTTS(text: string, tab: chrome.tabs.Tab): Promise<void> {
+    // Send message to start TTS
+    return chrome.tabs.sendMessage(tab.id!, {
+      type: MessageType.SPEAK_SELECTION,
+      payload: { text: text }
+    });
+  }
+
+  private showTTSFeedback(tab: chrome.tabs.Tab, status: string) {
+    // Send feedback to content script for user notification
+    if (tab.id) {
+      chrome.tabs.sendMessage(tab.id, {
+        type: MessageType.TTS_FEEDBACK,
+        payload: { status: status }
+      }).catch(error => {
+        debugLog('Could not send feedback to tab:', error);
+      });
+    }
+  }
+
+  private handleTTSError(error: Error, tab: chrome.tabs.Tab) {
+    const errorType = this.categorizeError(error);
+    
+    switch (errorType) {
+      case 'no-selection':
+        this.showTTSFeedback(tab, 'no-selection');
+        break;
+      case 'invalid-text':
+        this.showTTSFeedback(tab, 'invalid-text');
+        break;
+      case 'communication-error':
+        this.showTTSFeedback(tab, 'communication-error');
+        break;
+      default:
+        this.showTTSFeedback(tab, 'error');
+    }
+  }
+
+  private categorizeError(error: Error): string {
+    const message = error.message.toLowerCase();
+    
+    if (message.includes('no text selected') || message.includes('selection no longer available')) {
+      return 'no-selection';
+    }
+    if (message.includes('not suitable for tts') || message.includes('invalid text')) {
+      return 'invalid-text';
+    }
+    if (message.includes('communicate with tab') || message.includes('invalid tab')) {
+      return 'communication-error';
+    }
+    
+    return 'unknown';
+  }
+
+  public updateMenuState(hasSelection: boolean) {
+    if (!this.isMenuCreated) return;
+
+    const menuProperties = {
+      enabled: hasSelection,
+      title: hasSelection ? 'Speak' : 'Speak (select text first)'
+    };
+
+    try {
+      chrome.contextMenus.update(this.menuId, menuProperties, () => {
+        if (chrome.runtime.lastError) {
+          debugLog('Error updating context menu:', chrome.runtime.lastError);
+        } else {
+          debugLog('Context menu updated:', hasSelection ? 'enabled' : 'disabled');
+        }
+      });
+    } catch (error) {
+      debugLog('Error in updateMenuState:', error);
+    }
+  }
+
+  public destroy() {
+    if (this.isMenuCreated && chrome.contextMenus) {
+      chrome.contextMenus.removeAll();
+      this.isMenuCreated = false;
+    }
+  }
+}
+
+// Initialize selection manager and context menu manager with error handling
 let selectionManager: SelectionManager;
+let contextMenuManager: ContextMenuManager;
+
 try {
   selectionManager = new SelectionManager();
+  contextMenuManager = new ContextMenuManager(selectionManager);
+  
+  // Link the managers for bi-directional communication
+  selectionManager.setContextMenuManager(contextMenuManager);
+  
   console.log('Background script loaded and ready');
   debugLog('Service worker started successfully');
 } catch (error) {
@@ -152,22 +405,7 @@ chrome.runtime.onInstalled.addListener((details) => {
     }
   }
 
-  // Create context menu items with safety check
-  try {
-    if (chrome.contextMenus && chrome.contextMenus.create) {
-      chrome.contextMenus.create({
-        id: 'tts-speak',
-        title: 'Speak Selected Text',
-        contexts: ['selection'],
-        enabled: false, // Initially disabled until text is selected
-      });
-      debugLog('Context menu created successfully');
-    } else {
-      debugLog('Warning: chrome.contextMenus API not available');
-    }
-  } catch (error) {
-    debugLog('Error creating context menu:', error);
-  }
+  // Context menu is now managed by ContextMenuManager
 });
 
 // Message handler
@@ -219,25 +457,7 @@ chrome.runtime.onMessage.addListener(
   }
 );
 
-// Context menu handler with safety check
-if (chrome.contextMenus && chrome.contextMenus.onClicked) {
-  chrome.contextMenus.onClicked.addListener((info, tab) => {
-    if (info.menuItemId === 'tts-speak' && tab?.id) {
-      // Use current selection from selection manager or fallback to context menu selection
-      const currentSelectionText = selectionManager?.getSelectionText() || '';
-      const textToSpeak = currentSelectionText || info.selectionText;
-      
-      if (textToSpeak) {
-        chrome.tabs.sendMessage(tab.id, {
-          type: MessageType.SPEAK_SELECTION,
-          payload: { text: textToSpeak },
-        });
-      }
-    }
-  });
-} else {
-  debugLog('Warning: chrome.contextMenus.onClicked not available');
-}
+// Context menu click handling is now managed by ContextMenuManager
 
 // Alarm for periodic tasks with safety check
 try {

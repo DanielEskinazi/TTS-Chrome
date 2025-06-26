@@ -1,5 +1,7 @@
 # Feature 2.2: Minimal Context Menu
 
+**Status: ✅ COMPLETED** | **Completed Date: 2025-06-26** | **Commit: [pending]** | **Assignee: Claude** | **Git Tag: feature-2.2-completed**
+
 ## Feature Overview
 
 Implement a context menu integration that appears when users right-click on selected text, providing a "Speak" option to trigger TTS functionality. This feature builds upon the text selection detection from Feature 2.1 and provides the primary user interface for TTS activation.

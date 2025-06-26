@@ -187,11 +187,103 @@ class TextSelectionHandler {
         this.clearSelection();
         sendResponse({ success: true });
         break;
+
+      case MessageType.TTS_FEEDBACK:
+        this.handleTTSFeedback(request.payload || {});
+        sendResponse({ success: true });
+        break;
         
       default:
         // Don't handle other message types here
         break;
     }
+  }
+
+  private handleTTSFeedback(feedbackData: Record<string, unknown>) {
+    const status = feedbackData.status as string;
+    
+    switch (status) {
+      case 'started':
+        this.showUserFeedback('🔊 TTS Started', 'success');
+        break;
+        
+      case 'no-selection':
+        this.showUserFeedback('⚠️ No text selected', 'warning');
+        break;
+        
+      case 'invalid-text':
+        this.showUserFeedback('❌ Invalid text for TTS', 'error');
+        break;
+        
+      case 'communication-error':
+        this.showUserFeedback('🔌 Communication error', 'error');
+        break;
+        
+      case 'error':
+      default:
+        this.showUserFeedback('❌ TTS Error', 'error');
+        break;
+    }
+  }
+
+  private showUserFeedback(message: string, type: 'success' | 'warning' | 'error' | 'info') {
+    // Create a temporary notification element
+    const notification = this.createNotificationElement(message, type);
+    document.body.appendChild(notification);
+    
+    // Show notification with slight delay for smooth animation
+    setTimeout(() => {
+      notification.classList.add('tts-notification-show');
+    }, 10);
+    
+    // Hide and remove notification after 3 seconds
+    setTimeout(() => {
+      notification.classList.remove('tts-notification-show');
+      setTimeout(() => {
+        if (notification.parentNode) {
+          notification.parentNode.removeChild(notification);
+        }
+      }, 300);
+    }, 3000);
+  }
+
+  private createNotificationElement(message: string, type: 'success' | 'warning' | 'error' | 'info'): HTMLElement {
+    const notification = document.createElement('div');
+    notification.className = `tts-notification tts-notification-${type}`;
+    notification.textContent = message;
+    
+    // Add styles with proper z-index and positioning
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: ${this.getNotificationColor(type)};
+      color: white;
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+      z-index: 2147483647;
+      transform: translateX(100%);
+      transition: transform 0.3s ease-out;
+      max-width: 320px;
+      word-wrap: break-word;
+      border: 1px solid rgba(255,255,255,0.2);
+    `;
+    
+    return notification;
+  }
+
+  private getNotificationColor(type: 'success' | 'warning' | 'error' | 'info'): string {
+    const colors = {
+      success: '#10b981', // emerald-500
+      warning: '#f59e0b', // amber-500
+      error: '#ef4444',   // red-500
+      info: '#3b82f6'     // blue-500
+    };
+    return colors[type] || colors.info;
   }
 
   private handleSelectionError(error: Error, context: string) {
@@ -381,6 +473,22 @@ class ContentScriptController {
       
       .tts-pulse {
         animation: tts-pulse 1s infinite;
+      }
+
+      /* TTS Notification Styles */
+      .tts-notification-show {
+        transform: translateX(0) !important;
+      }
+
+      .tts-notification:hover {
+        transform: translateX(0) !important;
+        cursor: pointer;
+      }
+
+      /* Ensure notifications don't interfere with page content */
+      .tts-notification {
+        pointer-events: auto;
+        user-select: none;
       }
     `;
     document.head.appendChild(style);
