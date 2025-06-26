@@ -11,7 +11,7 @@
 ### Phase 1: Setup (100% Complete - 3/3) ✅
 - [x] **Feature 1.1**: Basic Project Initialization ✅ *(Completed: 2024-12-25, Commit: e60cbdb)*
 - [x] **Feature 1.2**: Development Environment ✅ *(Completed: 2025-06-25, Commit: 9a52fc8)*
-- [x] **Feature 1.3**: Minimal Extension ✅ *(Completed: 2025-06-26, Commit: [to be added])*
+- [x] **Feature 1.3**: Minimal Extension ✅ *(Completed: 2025-06-26, Commit: e788fae)*
 
 ### Phase 2: Basic TTS (0% Complete - 0/4)
 - [ ] **Feature 2.1**: Simple Text Selection
@@ -50,7 +50,7 @@
 
 ### Feature 1.3: Minimal Extension Structure ✅
 - **Completed**: June 26, 2025
-- **Commit**: [to be added]
+- **Commit**: e788fae
 - **Assignee**: Claude
 - **Duration**: Minimal extension implementation
 - **Git Tag**: `feature-1.3-completed`
@@ -120,10 +120,10 @@
 ### Feature Completion Tags
 - `feature-1.1-completed` - Basic Project Initialization (e60cbdb)
 - `feature-1.2-completed` - Development Environment (9a52fc8)
-- `feature-1.3-completed` - Minimal Extension Structure ([to be added])
+- `feature-1.3-completed` - Minimal Extension Structure (e788fae)
 
 ### Phase Completion Tags
-- `phase-1-completed` - Phase 1: Setup Complete ([to be added])
+- `phase-1-completed` - Phase 1: Setup Complete (e788fae)
 
 ### Milestone Tags
 *(None yet - created at major project milestones)*
