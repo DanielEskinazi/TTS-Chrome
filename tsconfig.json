@@ -16,7 +16,12 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "types": ["chrome", "jest", "node"]
+    "types": ["chrome", "jest", "node"],
+    "baseUrl": "./src",
+    "paths": {
+      "@/*": ["*"],
+      "@common/*": ["common/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "tests"]

@@ -1,24 +1,57 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TTS Control</title>
-    <style>
-        body {
-            width: 400px;
-            height: 300px;
-            margin: 0;
-            padding: 16px;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-    </style>
+  <meta charset="utf-8">
+  <title>TTS Extension</title>
+  <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-    <div id="app">
-        <h1>Text-to-Speech</h1>
-        <p>Advanced TTS Chrome Extension</p>
-    </div>
-    <script src="popup.js"></script>
+  <div class="popup-container">
+    <header class="popup-header">
+      <h1>Text to Speech</h1>
+      <div class="status-indicator" id="status"></div>
+    </header>
+    
+    <main class="popup-content">
+      <section class="quick-actions">
+        <button id="toggleEnabled" class="btn btn-primary">
+          <span class="btn-icon">🔊</span>
+          <span class="btn-text">Enable TTS</span>
+        </button>
+        
+        <button id="speakPage" class="btn btn-secondary">
+          <span class="btn-icon">📄</span>
+          <span class="btn-text">Read Page</span>
+        </button>
+      </section>
+      
+      <section class="test-area">
+        <textarea 
+          id="testText" 
+          placeholder="Enter text to test TTS..."
+          rows="3"
+        ></textarea>
+        <button id="testSpeak" class="btn btn-small">Test Speech</button>
+      </section>
+      
+      <section class="settings-preview">
+        <div class="setting-item">
+          <label>Font Size:</label>
+          <span id="fontSizeValue">16px</span>
+        </div>
+        <div class="setting-item">
+          <label>Theme:</label>
+          <span id="themeValue">Light</span>
+        </div>
+      </section>
+    </main>
+    
+    <footer class="popup-footer">
+      <a href="#" id="openOptions">Settings</a>
+      <span class="version">v0.1.0</span>
+    </footer>
+  </div>
+  
+  <script src="popup.js"></script>
 </body>
 </html>

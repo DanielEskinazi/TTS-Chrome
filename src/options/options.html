@@ -1,23 +1,140 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TTS Settings</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 24px;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 800px;
-        }
-    </style>
+  <meta charset="utf-8">
+  <title>TTS Extension Settings</title>
+  <link rel="stylesheet" href="options.css">
 </head>
 <body>
-    <div id="app">
-        <h1>TTS Extension Settings</h1>
-        <p>Configure your text-to-speech preferences</p>
-    </div>
-    <script src="options.js"></script>
+  <div class="options-container">
+    <header class="options-header">
+      <h1>Text to Speech Settings</h1>
+      <p>Configure your TTS extension preferences</p>
+    </header>
+    
+    <main class="options-content">
+      <form id="settingsForm">
+        <section class="settings-section">
+          <h2>General Settings</h2>
+          
+          <div class="form-group">
+            <label class="toggle-label">
+              <input type="checkbox" id="enabled" name="enabled">
+              <span class="toggle-switch"></span>
+              <span class="toggle-text">Enable TTS</span>
+            </label>
+            <p class="form-help">Turn text-to-speech functionality on or off</p>
+          </div>
+          
+          <div class="form-group">
+            <label for="theme">Theme</label>
+            <select id="theme" name="theme" class="form-control">
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+              <option value="auto">Auto (System)</option>
+            </select>
+            <p class="form-help">Choose your preferred color theme</p>
+          </div>
+        </section>
+        
+        <section class="settings-section">
+          <h2>Speech Settings</h2>
+          
+          <div class="form-group">
+            <label for="voice">Voice</label>
+            <select id="voice" name="voice" class="form-control">
+              <option value="default">Default System Voice</option>
+            </select>
+            <p class="form-help">Select the voice for text-to-speech</p>
+          </div>
+          
+          <div class="form-group">
+            <label for="rate">Speech Rate</label>
+            <div class="range-container">
+              <input type="range" id="rate" name="rate" 
+                     min="0.5" max="2" step="0.1" value="1">
+              <span class="range-value" id="rateValue">1.0x</span>
+            </div>
+            <p class="form-help">Adjust the speed of speech</p>
+          </div>
+          
+          <div class="form-group">
+            <label for="pitch">Pitch</label>
+            <div class="range-container">
+              <input type="range" id="pitch" name="pitch" 
+                     min="0.5" max="2" step="0.1" value="1">
+              <span class="range-value" id="pitchValue">1.0</span>
+            </div>
+            <p class="form-help">Adjust the pitch of the voice</p>
+          </div>
+          
+          <div class="form-group">
+            <label for="volume">Volume</label>
+            <div class="range-container">
+              <input type="range" id="volume" name="volume" 
+                     min="0" max="1" step="0.1" value="1">
+              <span class="range-value" id="volumeValue">100%</span>
+            </div>
+            <p class="form-help">Adjust the volume level</p>
+          </div>
+        </section>
+        
+        <section class="settings-section">
+          <h2>Display Settings</h2>
+          
+          <div class="form-group">
+            <label for="fontSize">Font Size</label>
+            <div class="range-container">
+              <input type="range" id="fontSize" name="fontSize" 
+                     min="12" max="24" step="1" value="16">
+              <span class="range-value" id="fontSizeValue">16px</span>
+            </div>
+            <p class="form-help">Adjust the font size for the extension UI</p>
+          </div>
+          
+          <div class="form-group">
+            <label class="toggle-label">
+              <input type="checkbox" id="highlightText" name="highlightText">
+              <span class="toggle-switch"></span>
+              <span class="toggle-text">Highlight spoken text</span>
+            </label>
+            <p class="form-help">Visually highlight text as it's being spoken</p>
+          </div>
+        </section>
+        
+        <section class="settings-section">
+          <h2>Keyboard Shortcuts</h2>
+          
+          <div class="shortcuts-list">
+            <div class="shortcut-item">
+              <span class="shortcut-action">Speak selected text</span>
+              <span class="shortcut-key">Shift + Double-click</span>
+            </div>
+            <div class="shortcut-item">
+              <span class="shortcut-action">Stop speaking</span>
+              <span class="shortcut-key">Escape</span>
+            </div>
+          </div>
+        </section>
+        
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Save Settings</button>
+          <button type="button" id="resetButton" class="btn btn-secondary">
+            Reset to Defaults
+          </button>
+        </div>
+      </form>
+    </main>
+    
+    <footer class="options-footer">
+      <p>TTS Extension v0.1.0</p>
+      <div class="footer-links">
+        <a href="#" id="exportSettings">Export Settings</a>
+        <a href="#" id="importSettings">Import Settings</a>
+      </div>
+    </footer>
+  </div>
+  
+  <script src="options.js"></script>
 </body>
 </html>

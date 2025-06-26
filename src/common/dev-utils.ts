@@ -1,6 +1,7 @@
 /**
  * Development utilities - these will be stripped in production builds
  */
+/* eslint-disable no-console */
 
 export const isDevelopment = process.env.NODE_ENV === 'development';
 
