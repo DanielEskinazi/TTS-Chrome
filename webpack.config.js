@@ -62,28 +62,17 @@ module.exports = (env, argv) => {
           { from: 'manifest.json', to: 'manifest.json' },
           { from: 'public/icons', to: 'icons', noErrorOnMissing: true },
           { from: 'src/popup/popup.html', to: 'popup.html' },
+          { from: 'src/popup/popup.css', to: 'popup.css' },
           { from: 'src/options/options.html', to: 'options.html' },
+          { from: 'src/options/options.css', to: 'options.css' },
         ],
       }),
     ],
     
     optimization: {
       minimize: isProduction,
-      splitChunks: {
-        chunks: 'all',
-        cacheGroups: {
-          vendor: {
-            test: /[\\/]node_modules[\\/]/,
-            name: 'vendor',
-            priority: 10,
-          },
-          common: {
-            minChunks: 2,
-            priority: 5,
-            reuseExistingChunk: true,
-          },
-        },
-      },
+      // Disable splitChunks for extension compatibility
+      splitChunks: false,
     },
     
     // Disable performance hints in development

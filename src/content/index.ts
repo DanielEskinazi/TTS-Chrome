@@ -1,11 +1,296 @@
 import { MessageType, Message } from '@common/types/messages';
 import { devLog } from '@common/dev-utils';
 
-class ContentScriptController {
-  private selectedText: string = '';
-  private highlightedElements: HTMLElement[] = [];
+interface SelectionInfo {
+  text: string;
+  boundingRect: {
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+  };
+  timestamp: number;
+}
+
+class TextSelectionHandler {
+  private currentSelection: Selection | null = null;
+  private selectionText: string = '';
+  private isSelectionActive: boolean = false;
+  private selectionInfo: SelectionInfo | null = null;
 
   constructor() {
+    this.init();
+  }
+
+  private init() {
+    if (!this.validateSelectionEnvironment()) {
+      devLog('Selection environment validation failed');
+      return;
+    }
+
+    // Listen for selection changes
+    document.addEventListener('selectionchange', this.handleSelectionChange.bind(this));
+    
+    // Listen for mouse events to detect selection completion
+    document.addEventListener('mouseup', this.handleMouseUp.bind(this));
+    
+    // Listen for keyboard events for keyboard-based selection
+    document.addEventListener('keyup', this.handleKeyUp.bind(this));
+    
+    // Listen for messages from background script
+    chrome.runtime.onMessage.addListener(this.handleMessage.bind(this));
+    
+    devLog('TTS Text Selection Handler initialized');
+    console.log('🔊 TTS Text Selection Handler initialized - Extension is working!');
+  }
+
+  private handleSelectionChange() {
+    try {
+      const selection = this.safeGetSelection();
+      
+      if (selection && selection.rangeCount > 0) {
+        const selectedText = selection.toString().trim();
+        
+        if (selectedText.length > 0) {
+          this.currentSelection = selection;
+          this.selectionText = selectedText;
+          this.isSelectionActive = true;
+          
+          // Store selection information for context menu
+          this.storeSelectionInfo(selection);
+        } else {
+          this.clearSelection();
+        }
+      } else {
+        this.clearSelection();
+      }
+    } catch (error) {
+      this.handleSelectionError(error as Error, 'handleSelectionChange');
+    }
+  }
+
+  private handleMouseUp(_event: MouseEvent) {
+    // Small delay to ensure selection is complete
+    setTimeout(() => {
+      this.processSelection();
+    }, 10);
+  }
+
+  private handleKeyUp(event: KeyboardEvent) {
+    // Handle keyboard-based selection (Shift + Arrow keys, Ctrl+A, etc.)
+    if (event.shiftKey || ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+      setTimeout(() => {
+        this.processSelection();
+      }, 10);
+    }
+  }
+
+  private processSelection() {
+    try {
+      const selection = this.safeGetSelection();
+      const selectedText = selection ? selection.toString().trim() : '';
+      
+      if (selectedText.length > 0) {
+        this.validateAndStoreSelection(selectedText, selection);
+      }
+    } catch (error) {
+      this.handleSelectionError(error as Error, 'processSelection');
+    }
+  }
+
+  private validateAndStoreSelection(text: string, selection: Selection | null) {
+    if (this.isValidSelection(text) && selection) {
+      this.selectionText = this.cleanSelectionText(text);
+      this.currentSelection = selection;
+      this.isSelectionActive = true;
+      
+      // Notify background script of new selection
+      this.notifySelectionChange();
+      console.log('📝 Text selected:', this.selectionText.substring(0, 50) + '...');
+    }
+  }
+
+  private isValidSelection(text: string): boolean {
+    if (!text || text.length === 0) return false;
+    if (text.length > 5000) return false; // Reasonable limit
+    
+    // Check if text contains readable content (not just symbols/whitespace)
+    const readableContent = text.replace(/[\s\n\r\t]/g, '');
+    return readableContent.length > 0;
+  }
+
+  private cleanSelectionText(text: string): string {
+    return text
+      .replace(/\s+/g, ' ')           // Normalize whitespace
+      .replace(/[\n\r\t]/g, ' ')      // Replace line breaks with spaces
+      .trim();                        // Remove leading/trailing whitespace
+  }
+
+  private storeSelectionInfo(selection: Selection) {
+    if (selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      
+      // Store selection metadata
+      this.selectionInfo = {
+        text: this.selectionText,
+        boundingRect: {
+          top: rect.top + window.scrollY,
+          left: rect.left + window.scrollX,
+          width: rect.width,
+          height: rect.height
+        },
+        timestamp: Date.now()
+      };
+    }
+  }
+
+  private notifySelectionChange() {
+    chrome.runtime.sendMessage({
+      type: MessageType.SELECTION_CHANGED,
+      payload: {
+        text: this.selectionText,
+        hasSelection: this.isSelectionActive,
+        url: window.location.href,
+        title: document.title
+      }
+    }).catch(error => {
+      devLog('Error sending selection change message:', error);
+    });
+  }
+
+  private clearSelection() {
+    this.currentSelection = null;
+    this.selectionText = '';
+    this.isSelectionActive = false;
+    this.selectionInfo = null;
+    
+    // Notify background script
+    chrome.runtime.sendMessage({
+      type: MessageType.SELECTION_CLEARED
+    }).catch(error => {
+      devLog('Error sending selection cleared message:', error);
+    });
+  }
+
+  private handleMessage(request: Message, _sender: chrome.runtime.MessageSender, sendResponse: (response?: Record<string, unknown>) => void) {
+    switch (request.type) {
+      case MessageType.GET_SELECTION:
+        sendResponse({
+          text: this.selectionText,
+          hasSelection: this.isSelectionActive,
+          info: this.selectionInfo
+        });
+        break;
+        
+      case MessageType.CLEAR_SELECTION:
+        this.clearSelection();
+        sendResponse({ success: true });
+        break;
+        
+      default:
+        // Don't handle other message types here
+        break;
+    }
+  }
+
+  private handleSelectionError(error: Error, context: string) {
+    devLog('Selection error in', context, ':', error);
+    
+    // Report error to background script
+    chrome.runtime.sendMessage({
+      type: MessageType.SELECTION_ERROR,
+      payload: {
+        error: error.message,
+        context: context,
+        url: window.location.href,
+        userAgent: navigator.userAgent
+      }
+    }).catch(() => {
+      // Ignore messaging errors during error handling
+    });
+    
+    // Reset selection state
+    this.clearSelection();
+  }
+
+  private safeGetSelection(): Selection | null {
+    try {
+      return window.getSelection();
+    } catch (error) {
+      this.handleSelectionError(error as Error, 'getSelection');
+      return null;
+    }
+  }
+
+  private validateSelectionEnvironment(): boolean {
+    if (!window.getSelection) {
+      devLog('Selection API not available');
+      return false;
+    }
+    
+    if (!document) {
+      devLog('Document not available');
+      return false;
+    }
+    
+    return true;
+  }
+
+  // Public method to get current selection
+  public getCurrentSelection(): { text: string; isActive: boolean; info: SelectionInfo | null } {
+    return {
+      text: this.selectionText,
+      isActive: this.isSelectionActive,
+      info: this.selectionInfo
+    };
+  }
+
+  // Public method to get selected text (for ContentScriptController compatibility)
+  public getSelectedText(): string {
+    return this.selectionText;
+  }
+
+  // Public methods for testing (expose private methods)
+  public testIsValidSelection(text: string): boolean {
+    return this.isValidSelection(text);
+  }
+
+  public testCleanSelectionText(text: string): string {
+    return this.cleanSelectionText(text);
+  }
+
+  public testValidateSelectionEnvironment(): boolean {
+    return this.validateSelectionEnvironment();
+  }
+
+  public testSafeGetSelection(): Selection | null {
+    return this.safeGetSelection();
+  }
+
+  public testValidateAndStoreSelection(text: string, selection: Selection | null): void {
+    return this.validateAndStoreSelection(text, selection);
+  }
+
+  public testClearSelection(): void {
+    return this.clearSelection();
+  }
+
+  public testHandleMessage(request: Message, sender: chrome.runtime.MessageSender, sendResponse: (response?: Record<string, unknown>) => void): void {
+    return this.handleMessage(request, sender, sendResponse);
+  }
+
+  public testHandleSelectionChange(): void {
+    return this.handleSelectionChange();
+  }
+}
+
+class ContentScriptController {
+  private highlightedElements: HTMLElement[] = [];
+  private textSelectionHandler: TextSelectionHandler;
+
+  constructor() {
+    this.textSelectionHandler = new TextSelectionHandler();
     this.initialize();
   }
 
@@ -23,16 +308,11 @@ class ContentScriptController {
   }
 
   private setupEventListeners() {
-    // Selection change listener
-    document.addEventListener('selectionchange', () => {
-      const selection = window.getSelection();
-      this.selectedText = selection ? selection.toString().trim() : '';
-    });
-
     // Double-click to speak
     document.addEventListener('dblclick', (e) => {
-      if (this.selectedText && e.shiftKey) {
-        this.speakText(this.selectedText);
+      const selectedText = this.textSelectionHandler.getSelectedText();
+      if (selectedText && e.shiftKey) {
+        this.speakText(selectedText);
       }
     });
 
@@ -46,12 +326,13 @@ class ContentScriptController {
             if ('fullPage' in message.payload && message.payload.fullPage) {
               this.speakFullPage();
             } else {
-              const text =
-                'text' in message.payload ? String(message.payload.text) : this.selectedText;
+              const text = 'text' in message.payload 
+                ? String(message.payload.text) 
+                : this.textSelectionHandler.getSelectedText();
               this.speakText(text);
             }
           } else {
-            this.speakText(this.selectedText);
+            this.speakText(this.textSelectionHandler.getSelectedText());
           }
           sendResponse({ success: true });
           break;
@@ -210,3 +491,6 @@ declare global {
     __ttsContentScriptInitialized?: boolean;
   }
 }
+
+// Export for testing
+export { TextSelectionHandler };
