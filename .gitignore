@@ -36,3 +36,6 @@ coverage/
 # Package manager lock files
 package-lock.json
 yarn.lock
+
+# chrome profile ?
+.chrome*

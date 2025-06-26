@@ -4,13 +4,13 @@
 
 export const isDevelopment = process.env.NODE_ENV === 'development';
 
-export const devLog = (...args: any[]): void => {
+export const devLog = (...args: unknown[]): void => {
   if (isDevelopment) {
     console.log('[TTS-Dev]', ...args);
   }
 };
 
-export const devError = (...args: any[]): void => {
+export const devError = (...args: unknown[]): void => {
   if (isDevelopment) {
     console.error('[TTS-Dev Error]', ...args);
   }
