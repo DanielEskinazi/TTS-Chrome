@@ -2,9 +2,9 @@
 
 ## Project Overview
 - **Total Features**: 23
-- **Completed Features**: 3
-- **Progress**: 13.0% (3/23)
-- **Current Phase**: Phase 1 - Setup
+- **Completed Features**: 4
+- **Progress**: 17.4% (4/23)
+- **Current Phase**: Phase 2 - Basic TTS
 
 ## Phase Progress
 
@@ -13,8 +13,8 @@
 - [x] **Feature 1.2**: Development Environment ✅ *(Completed: 2025-06-25, Commit: 9a52fc8)*
 - [x] **Feature 1.3**: Minimal Extension ✅ *(Completed: 2025-06-26, Commit: e788fae)*
 
-### Phase 2: Basic TTS (0% Complete - 0/4)
-- [ ] **Feature 2.1**: Simple Text Selection
+### Phase 2: Basic TTS (25% Complete - 1/4)
+- [x] **Feature 2.1**: Simple Text Selection ✅ *(Completed: 2025-06-26, Commit: [pending])*
 - [ ] **Feature 2.2**: Minimal Context Menu
 - [ ] **Feature 2.3**: Basic Speech Output
 - [ ] **Feature 2.4**: Stop Functionality
@@ -107,13 +107,13 @@
 | Phase | Features | Completed | Progress | Status |
 |-------|----------|-----------|----------|---------|
 | Phase 1 | 3 | 3 | 100% | ✅ Complete |
-| Phase 2 | 4 | 0 | 0% | ⚪ Not Started |
+| Phase 2 | 4 | 1 | 25% | 🟡 In Progress |
 | Phase 3 | 4 | 0 | 0% | ⚪ Not Started |
 | Phase 4 | 4 | 0 | 0% | ⚪ Not Started |
 | Phase 5 | 3 | 0 | 0% | ⚪ Not Started |
 | Phase 6 | 3 | 0 | 0% | ⚪ Not Started |
 | Phase 7 | 3 | 0 | 0% | ⚪ Not Started |
-| **Total** | **23** | **3** | **13.0%** | **🟡 In Progress** |
+| **Total** | **23** | **4** | **17.4%** | **🟡 In Progress** |
 
 ## Git Tags
 
@@ -121,6 +121,7 @@
 - `feature-1.1-completed` - Basic Project Initialization (e60cbdb)
 - `feature-1.2-completed` - Development Environment (9a52fc8)
 - `feature-1.3-completed` - Minimal Extension Structure (e788fae)
+- `feature-2.1-completed` - Simple Text Selection ([pending])
 
 ### Phase Completion Tags
 - `phase-1-completed` - Phase 1: Setup Complete (e788fae)
@@ -128,17 +129,38 @@
 ### Milestone Tags
 *(None yet - created at major project milestones)*
 
+## Recently Completed
+
+### Feature 2.1: Simple Text Selection ✅
+- **Completed**: June 26, 2025
+- **Commit**: [pending]
+- **Assignee**: Claude
+- **Duration**: Text selection implementation
+- **Git Tag**: `feature-2.1-completed`
+
+**Accomplishments:**
+- ✅ TextSelectionHandler class with comprehensive selection detection across HTML elements
+- ✅ Robust text validation and cleaning with whitespace normalization
+- ✅ Mouse and keyboard selection event handling with performance optimization
+- ✅ SelectionManager in background script for centralized state management
+- ✅ Context menu integration with dynamic enabled/disabled states
+- ✅ Tab change and page reload selection clearing for memory management
+- ✅ Comprehensive error handling and recovery mechanisms
+- ✅ Message passing system between content script and background
+- ✅ Unit test suite with 100% pass rate and full coverage
+- ✅ TypeScript strict mode compliance and ESLint validation
+
 ## Next Steps
 
-1. **Feature 2.1**: Simple Text Selection
-   - Implement text selection detection
-   - Add selection highlighting
-   - Establish basic user interaction patterns
-
-2. **Feature 2.2**: Minimal Context Menu
+1. **Feature 2.2**: Minimal Context Menu
    - Create context menu integration
    - Add speak selected text functionality
    - Test right-click interaction patterns
+
+2. **Feature 2.3**: Basic Speech Output
+   - Implement Chrome TTS API integration
+   - Add voice selection and playback controls
+   - Test speech synthesis functionality
 
 ## Tracking Notes
 
@@ -149,4 +171,4 @@
 
 ---
 *Last Updated: June 26, 2025*
-*Next Review: After Feature 2.1 completion*
+*Next Review: After Feature 2.2 completion*

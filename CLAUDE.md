@@ -6,6 +6,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a TypeScript-based Chrome extension for Text-to-Speech functionality with advanced features including multiple voices, playback controls, and comprehensive text processing. The extension uses Webpack for bundling and Jest for testing.
 
+## Repository Information
+
+- **Repository**: `github.com/dany/TTS-Chrome` 
+- **Primary Branch**: `main`
+- **Development Branch Pattern**: `feature/feature-X.Y-description`
+- **Repository Type**: Chrome Extension (Manifest V3)
+- **License**: [Specify license if available]
+- **GitHub MCP Integration**: Enabled for automated branch creation, PR management, and issue tracking
+
+### GitHub Integration Commands
+All GitHub operations should use the MCP GitHub tools:
+- **Create Branch**: `mcp__github__create_branch`
+- **Create Pull Request**: `mcp__github__create_pull_request`
+- **Create Issues**: `mcp__github__create_issue`
+- **Repository Operations**: `mcp__github__*` tools as needed
+
 ## Development Commands
 
 ### Core Development
