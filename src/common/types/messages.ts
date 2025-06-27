@@ -13,14 +13,17 @@ export enum MessageType {
   // Enhanced TTS operations with Web Speech API
   START_TTS = 'START_TTS',
   STOP_TTS = 'STOP_TTS',
+  FORCE_STOP_TTS = 'FORCE_STOP_TTS',
   PAUSE_TTS = 'PAUSE_TTS',
   RESUME_TTS = 'RESUME_TTS',
   TTS_STATE_CHANGED = 'TTS_STATE_CHANGED',
   TTS_ERROR = 'TTS_ERROR',
+  GET_TTS_STATE = 'GET_TTS_STATE',
   
   // Content script speech synthesis
   START_SPEECH = 'START_SPEECH',
   STOP_SPEECH = 'STOP_SPEECH',
+  FORCE_STOP = 'FORCE_STOP',
   PAUSE_SPEECH = 'PAUSE_SPEECH',
   RESUME_SPEECH = 'RESUME_SPEECH',
   

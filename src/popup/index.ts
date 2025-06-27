@@ -12,12 +12,22 @@ class PopupController {
     status: HTMLDivElement;
     fontSizeValue: HTMLSpanElement;
     themeValue: HTMLSpanElement;
+    ttsStatus: HTMLDivElement;
+    currentText: HTMLDivElement;
+    textPreview: HTMLSpanElement;
+    stopBtn: HTMLButtonElement;
+    forceStopBtn: HTMLButtonElement;
   };
 
   private state = {
     enabled: true,
     fontSize: 16,
     theme: 'light' as 'light' | 'dark',
+  };
+
+  private ttsState = {
+    isPlaying: false,
+    currentText: '',
   };
 
   constructor() {
@@ -30,6 +40,11 @@ class PopupController {
       status: document.getElementById('status') as HTMLDivElement,
       fontSizeValue: document.getElementById('fontSizeValue') as HTMLSpanElement,
       themeValue: document.getElementById('themeValue') as HTMLSpanElement,
+      ttsStatus: document.getElementById('ttsStatus') as HTMLDivElement,
+      currentText: document.getElementById('currentText') as HTMLDivElement,
+      textPreview: document.getElementById('textPreview') as HTMLSpanElement,
+      stopBtn: document.getElementById('stopBtn') as HTMLButtonElement,
+      forceStopBtn: document.getElementById('forceStopBtn') as HTMLButtonElement,
     };
 
     this.initialize();
@@ -37,6 +52,7 @@ class PopupController {
 
   private async initialize() {
     await this.loadState();
+    await this.updateTTSState();
     this.setupEventListeners();
     this.updateUI();
   }
@@ -55,16 +71,20 @@ class PopupController {
     this.elements.toggleEnabled.addEventListener('click', () => this.toggleEnabled());
     this.elements.speakPage.addEventListener('click', () => this.speakCurrentPage());
     this.elements.testSpeak.addEventListener('click', () => this.testSpeech());
+    this.elements.stopBtn.addEventListener('click', () => this.handleStop());
+    this.elements.forceStopBtn.addEventListener('click', () => this.handleForceStop());
     this.elements.openOptions.addEventListener('click', (e) => {
       e.preventDefault();
       chrome.runtime.openOptionsPage();
     });
 
-    // Listen for settings updates
+    // Listen for TTS state changes and settings updates
     chrome.runtime.onMessage.addListener((message: Message) => {
       if (message.type === MessageType.SETTINGS_UPDATED) {
         this.state = { ...this.state, ...message.payload };
         this.updateUI();
+      } else if (message.type === MessageType.TTS_STATE_CHANGED) {
+        this.handleTTSStateChange(message.payload || {});
       }
     });
   }
@@ -149,6 +169,127 @@ class PopupController {
     }
   }
 
+  private async updateTTSState() {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: MessageType.GET_TTS_STATE
+      });
+      
+      if (response && response.success) {
+        const state = response.data;
+        this.ttsState.isPlaying = state?.isActive || false;
+        this.updateTTSUI();
+      }
+    } catch (error) {
+      debugLog('Error getting TTS state:', error);
+    }
+  }
+
+  private handleTTSStateChange(data: Record<string, unknown>) {
+    const { state, playbackState } = data;
+    
+    // Determine if TTS is playing
+    const isPlaying = (state === 'started' || state === 'resumed') && 
+                      playbackState && 
+                      typeof (playbackState as Record<string, unknown>).isPlaying === 'boolean' &&
+                      (playbackState as Record<string, unknown>).isPlaying;
+    
+    this.ttsState.isPlaying = Boolean(isPlaying);
+    
+    // Update current text if available
+    if (playbackState && (playbackState as Record<string, unknown>).currentText) {
+      this.ttsState.currentText = (playbackState as Record<string, unknown>).currentText as string;
+    }
+    
+    this.updateTTSUI();
+  }
+
+  private async handleStop() {
+    try {
+      this.elements.stopBtn.disabled = true;
+      this.elements.stopBtn.querySelector('.btn-text')!.textContent = 'Stopping...';
+      
+      await chrome.runtime.sendMessage({
+        type: MessageType.STOP_TTS,
+        payload: { source: 'popup' }
+      });
+      
+      // UI will be updated via message listener
+      
+    } catch (error) {
+      debugLog('Error stopping TTS:', error);
+      this.showError('Failed to stop TTS');
+    } finally {
+      this.elements.stopBtn.querySelector('.btn-text')!.textContent = 'Stop Speaking';
+    }
+  }
+
+  private async handleForceStop() {
+    try {
+      this.elements.forceStopBtn.disabled = true;
+      this.elements.forceStopBtn.querySelector('.btn-text')!.textContent = 'Force Stopping...';
+      
+      await chrome.runtime.sendMessage({
+        type: MessageType.FORCE_STOP_TTS
+      });
+      
+      // UI will be updated via message listener
+      
+    } catch (error) {
+      debugLog('Error force stopping TTS:', error);
+      this.showError('Failed to force stop TTS');
+    } finally {
+      this.elements.forceStopBtn.querySelector('.btn-text')!.textContent = 'Force Stop';
+    }
+  }
+
+  private updateTTSUI() {
+    // Update TTS status display
+    if (this.ttsState.isPlaying) {
+      this.elements.ttsStatus.querySelector('.status-text')!.textContent = 'TTS is playing';
+      this.elements.ttsStatus.className = 'status-card playing';
+      
+      // Show current text if available
+      if (this.ttsState.currentText) {
+        this.showCurrentText();
+      }
+    } else {
+      this.elements.ttsStatus.querySelector('.status-text')!.textContent = 'TTS is not active';
+      this.elements.ttsStatus.className = 'status-card stopped';
+      this.hideCurrentText();
+    }
+    
+    // Update button states
+    this.elements.stopBtn.disabled = !this.ttsState.isPlaying;
+    this.elements.forceStopBtn.disabled = !this.ttsState.isPlaying;
+  }
+
+  private showCurrentText() {
+    if (this.ttsState.currentText) {
+      const preview = this.ttsState.currentText.length > 50 
+        ? this.ttsState.currentText.substring(0, 50) + '...'
+        : this.ttsState.currentText;
+      
+      this.elements.textPreview.textContent = preview;
+      this.elements.currentText.style.display = 'block';
+    }
+  }
+
+  private hideCurrentText() {
+    this.elements.currentText.style.display = 'none';
+    this.elements.textPreview.textContent = '';
+  }
+
+  private showError(message: string) {
+    this.elements.ttsStatus.querySelector('.status-text')!.textContent = message;
+    this.elements.ttsStatus.className = 'status-card error';
+    
+    // Reset after 3 seconds
+    setTimeout(() => {
+      this.updateTTSState();
+    }, 3000);
+  }
+
   private updateUI() {
     // Update button text and status
     this.elements.toggleEnabled.querySelector('.btn-text')!.textContent = this.state.enabled
@@ -165,6 +306,9 @@ class PopupController {
     // Disable/enable buttons based on state
     this.elements.speakPage.disabled = !this.state.enabled;
     this.elements.testSpeak.disabled = !this.state.enabled;
+    
+    // Update TTS UI
+    this.updateTTSUI();
   }
 }
 

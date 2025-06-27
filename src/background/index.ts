@@ -123,13 +123,19 @@ class SelectionManager {
 }
 
 class ContextMenuManager {
-  private menuId = 'tts-speak';
+  private speakMenuId = 'tts-speak';
+  private stopMenuId = 'tts-stop';
   private isMenuCreated = false;
   private selectionManager: SelectionManager;
+  private ttsManager: TTSManager | null = null;
 
   constructor(selectionManager: SelectionManager) {
     this.selectionManager = selectionManager;
     this.init();
+  }
+
+  public setTTSManager(ttsManager: TTSManager) {
+    this.ttsManager = ttsManager;
   }
 
   private init() {
@@ -165,20 +171,35 @@ class ContextMenuManager {
   }
 
   private createMenu() {
+    // Create "Speak" menu item
     chrome.contextMenus.create({
-      id: this.menuId,
+      id: this.speakMenuId,
       title: 'Speak',
       contexts: ['selection'],
       enabled: false, // Initially disabled
       documentUrlPatterns: ['http://*/*', 'https://*/*']
     }, () => {
       if (chrome.runtime.lastError) {
-        debugLog('Error creating context menu:', chrome.runtime.lastError);
-      } else {
-        this.isMenuCreated = true;
-        debugLog('TTS context menu created successfully');
-        this.syncMenuWithCurrentState();
+        debugLog('Error creating speak menu:', chrome.runtime.lastError);
+        return;
       }
+      
+      // Create "Stop Speaking" menu item
+      chrome.contextMenus.create({
+        id: this.stopMenuId,
+        title: 'Stop Speaking',
+        contexts: ['page', 'selection'],
+        enabled: false, // Initially disabled
+        documentUrlPatterns: ['http://*/*', 'https://*/*']
+      }, () => {
+        if (chrome.runtime.lastError) {
+          debugLog('Error creating stop menu:', chrome.runtime.lastError);
+        } else {
+          this.isMenuCreated = true;
+          debugLog('TTS context menus created successfully');
+          this.syncMenuWithCurrentState();
+        }
+      });
     });
   }
 
@@ -203,8 +224,28 @@ class ContextMenuManager {
   }
 
   private async handleMenuClick(info: chrome.contextMenus.OnClickData, tab?: chrome.tabs.Tab) {
-    if (info.menuItemId === this.menuId && tab?.id) {
-      await this.triggerTTS(info, tab);
+    try {
+      switch (info.menuItemId) {
+        case this.speakMenuId:
+          if (tab?.id) {
+            await this.triggerTTS(info, tab);
+          }
+          break;
+          
+        case this.stopMenuId:
+          if (tab?.id) {
+            await this.stopTTS(tab);
+          }
+          break;
+          
+        default:
+          debugLog('Unknown menu item clicked:', info.menuItemId);
+      }
+    } catch (error) {
+      debugLog('Error handling menu click:', error);
+      if (tab?.id) {
+        this.showErrorFeedback(tab, error as Error);
+      }
     }
   }
 
@@ -241,6 +282,45 @@ class ContextMenuManager {
       debugLog('TTS trigger error:', error);
       this.handleTTSError(error as Error, tab);
     }
+  }
+
+  private async stopTTS(tab: chrome.tabs.Tab) {
+    try {
+      // Stop TTS using the TTS manager
+      if (this.ttsManager) {
+        await this.ttsManager.stopTTS();
+      }
+      
+      // Show stop feedback
+      this.showStopFeedback(tab);
+      
+      debugLog('TTS stopped via context menu');
+      
+    } catch (error) {
+      debugLog('Error stopping TTS:', error);
+      throw error;
+    }
+  }
+
+  private showStopFeedback(tab: chrome.tabs.Tab) {
+    chrome.tabs.sendMessage(tab.id!, {
+      type: MessageType.TTS_FEEDBACK,
+      payload: { status: 'stopped' }
+    }).catch(error => {
+      debugLog('Could not send stop feedback to tab:', error);
+    });
+  }
+
+  private showErrorFeedback(tab: chrome.tabs.Tab, error: Error) {
+    chrome.tabs.sendMessage(tab.id!, {
+      type: MessageType.TTS_FEEDBACK,
+      payload: { 
+        status: 'error',
+        message: error.message 
+      }
+    }).catch(error => {
+      debugLog('Could not send error feedback to tab:', error);
+    });
   }
 
   private async getSelectionFromTab(tabId: number, retries = 2): Promise<{ hasSelection: boolean; text?: string; info?: unknown }> {
@@ -344,22 +424,63 @@ class ContextMenuManager {
   public updateMenuState(hasSelection: boolean) {
     if (!this.isMenuCreated) return;
 
-    const menuProperties = {
-      enabled: hasSelection,
+    const isPlaying = this.ttsManager ? Boolean(this.ttsManager.getState().isActive) : false;
+
+    // Update speak menu (enabled when text is selected and not playing)
+    const speakMenuProperties = {
+      enabled: hasSelection && !isPlaying,
       title: hasSelection ? 'Speak' : 'Speak (select text first)'
     };
 
+    // Update stop menu (enabled when playing)
+    const stopMenuProperties = {
+      enabled: isPlaying
+    };
+
     try {
-      chrome.contextMenus.update(this.menuId, menuProperties, () => {
+      chrome.contextMenus.update(this.speakMenuId, speakMenuProperties, () => {
         if (chrome.runtime.lastError) {
-          debugLog('Error updating context menu:', chrome.runtime.lastError);
+          debugLog('Error updating speak menu:', chrome.runtime.lastError);
+        }
+      });
+
+      chrome.contextMenus.update(this.stopMenuId, stopMenuProperties, () => {
+        if (chrome.runtime.lastError) {
+          debugLog('Error updating stop menu:', chrome.runtime.lastError);
         } else {
-          debugLog('Context menu updated:', hasSelection ? 'enabled' : 'disabled');
+          debugLog('Context menus updated - speak:', speakMenuProperties.enabled, 'stop:', stopMenuProperties.enabled);
         }
       });
     } catch (error) {
       debugLog('Error in updateMenuState:', error);
     }
+  }
+
+  public updateMenusForTTSState(state: string) {
+    if (!this.isMenuCreated) return;
+
+    const isPlaying = (state === 'started' || state === 'resumed');
+    const hasSelection = this.selectionManager.hasSelection();
+
+    // Update speak menu (enabled when text is selected and not playing)
+    chrome.contextMenus.update(this.speakMenuId, {
+      enabled: hasSelection && !isPlaying
+    }, () => {
+      if (chrome.runtime.lastError) {
+        debugLog('Error updating speak menu:', chrome.runtime.lastError);
+      }
+    });
+
+    // Update stop menu (enabled when playing)
+    chrome.contextMenus.update(this.stopMenuId, {
+      enabled: isPlaying
+    }, () => {
+      if (chrome.runtime.lastError) {
+        debugLog('Error updating stop menu:', chrome.runtime.lastError);
+      }
+    });
+
+    debugLog('Menus updated for TTS state:', state, 'playing:', isPlaying);
   }
 
   public destroy() {
@@ -373,13 +494,25 @@ class ContextMenuManager {
 class TTSManager {
   private isActive = false;
   private currentTabId: number | null = null;
+  private stopTimeout: NodeJS.Timeout | null = null;
+  private forceStopAttempts = 0;
+  private contextMenuManager: ContextMenuManager | null = null;
 
   constructor() {
     this.init();
   }
 
+  public setContextMenuManager(contextMenuManager: ContextMenuManager) {
+    this.contextMenuManager = contextMenuManager;
+  }
+
   private init(): void {
-    console.log('TTS Manager initialized');
+    // Stop TTS when tab changes
+    chrome.tabs.onActivated.addListener(this.handleTabChange.bind(this));
+    chrome.tabs.onUpdated.addListener(this.handleTabUpdate.bind(this));
+    chrome.tabs.onRemoved.addListener(this.handleTabRemoved.bind(this));
+    
+    console.log('TTS Manager initialized with tab navigation listeners');
   }
 
   async handleMessage(request: Message, sender: chrome.runtime.MessageSender): Promise<Record<string, unknown>> {
@@ -388,7 +521,10 @@ class TTSManager {
         return await this.startTTS(request.payload, sender);
         
       case MessageType.STOP_TTS:
-        return await this.stopTTS();
+        return await this.stopTTS(request.payload);
+        
+      case MessageType.FORCE_STOP_TTS:
+        return await this.forceStopTTS();
         
       case MessageType.PAUSE_TTS:
         return await this.pauseTTS();
@@ -401,6 +537,9 @@ class TTSManager {
         
       case MessageType.TTS_ERROR:
         return this.handleTTSError(request.payload || {});
+
+      case MessageType.GET_TTS_STATE:
+        return this.getState();
         
       default:
         throw new Error('Unknown TTS message type');
@@ -420,10 +559,16 @@ class TTSManager {
         throw new Error('No tab ID available for TTS');
       }
 
-      // Stop any existing TTS
+      // Stop any existing TTS first
       if (this.isActive) {
-        await this.stopTTS();
+        await this.stopTTS({ source: 'new-request' });
+        
+        // Wait a bit for cleanup
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
+
+      // Reset force stop attempts
+      this.forceStopAttempts = 0;
 
       // Send speech command to content script
       await chrome.tabs.sendMessage(tabId, {
@@ -434,6 +579,9 @@ class TTSManager {
       this.isActive = true;
       this.currentTabId = tabId;
       
+      // Set up automatic stop timeout for very long text
+      this.setStopTimeout();
+      
       console.log('TTS started for text:', text.substring(0, 50) + '...');
       
       return { success: true };
@@ -443,25 +591,46 @@ class TTSManager {
     }
   }
 
-  private async stopTTS(): Promise<Record<string, unknown>> {
-    if (this.isActive && this.currentTabId) {
-      try {
-        await chrome.tabs.sendMessage(this.currentTabId, {
-          type: MessageType.STOP_SPEECH
-        });
-        
-        this.isActive = false;
-        this.currentTabId = null;
-        
-        console.log('TTS stopped');
-      } catch (error) {
-        console.error('Error stopping TTS:', error);
-        // Reset state even if message fails
-        this.isActive = false;
-        this.currentTabId = null;
+  public async stopTTS(options: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+    const { source = 'manual', force = false } = options;
+    
+    try {
+      if (!this.isActive && !force) {
+        console.log('TTS is not active, ignoring stop request');
+        return { success: true };
       }
+
+      // Clear the stop timeout
+      this.clearStopTimeout();
+
+      if (this.currentTabId) {
+        // Send stop command to content script
+        await chrome.tabs.sendMessage(this.currentTabId, {
+          type: MessageType.STOP_SPEECH,
+          payload: { source: source }
+        }).catch(error => {
+          console.warn('Could not send stop message to tab:', error);
+          // Tab might be closed or unresponsive, continue with cleanup
+        });
+      }
+
+      // Reset state
+      this.isActive = false;
+      this.currentTabId = null;
+      
+      // Broadcast stop state
+      this.broadcastStateChange('stopped', { isPlaying: false });
+      
+      console.log('TTS stopped, source:', source);
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Error stopping TTS:', error);
+      
+      // Force cleanup even if stop failed
+      this.forceCleanup();
+      throw error;
     }
-    return { success: true };
   }
 
   private async pauseTTS(): Promise<Record<string, unknown>> {
@@ -490,6 +659,67 @@ class TTSManager {
     return { success: true };
   }
 
+  private async forceStopTTS(): Promise<Record<string, unknown>> {
+    console.log('Force stopping TTS');
+    
+    this.forceStopAttempts++;
+    
+    try {
+      // Clear any timeouts
+      this.clearStopTimeout();
+      
+      // Send force stop to content script
+      if (this.currentTabId) {
+        await chrome.tabs.sendMessage(this.currentTabId, {
+          type: MessageType.FORCE_STOP
+        }).catch(error => {
+          console.warn('Could not send force stop to tab:', error);
+        });
+      }
+      
+      // Force cleanup
+      this.forceCleanup();
+      
+      // If we've tried multiple times, show error notification
+      if (this.forceStopAttempts > 2) {
+        this.showForceStopNotification();
+      }
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Error force stopping TTS:', error);
+      this.forceCleanup();
+      throw error;
+    }
+  }
+
+  private forceCleanup() {
+    // Aggressively clean up state
+    this.isActive = false;
+    this.currentTabId = null;
+    this.clearStopTimeout();
+    
+    // Broadcast stopped state
+    this.broadcastStateChange('stopped', { isPlaying: false });
+    
+    console.log('TTS force cleanup completed');
+  }
+
+  private setStopTimeout() {
+    // Automatically stop TTS after 10 minutes to prevent runaway speech
+    this.stopTimeout = setTimeout(() => {
+      console.warn('TTS auto-stop timeout reached');
+      this.stopTTS({ source: 'timeout', force: true });
+    }, 10 * 60 * 1000); // 10 minutes
+  }
+
+  private clearStopTimeout() {
+    if (this.stopTimeout) {
+      clearTimeout(this.stopTimeout);
+      this.stopTimeout = null;
+    }
+  }
+
   private handleStateChange(data: Record<string, unknown>): Record<string, unknown> {
     const state = data.state as string;
     
@@ -502,12 +732,23 @@ class TTSManager {
       case 'stopped':
         this.isActive = false;
         this.currentTabId = null;
+        this.clearStopTimeout();
         break;
         
       case 'paused':
       case 'resumed':
         // State remains active
         break;
+        
+      case 'error':
+        // Handle error state
+        this.forceCleanup();
+        break;
+    }
+    
+    // Update context menu state
+    if (this.contextMenuManager) {
+      this.contextMenuManager.updateMenusForTTSState(state);
     }
     
     // Broadcast state change to interested parties (popup, etc.)
@@ -552,11 +793,44 @@ class TTSManager {
     }
   }
 
+  private showForceStopNotification() {
+    chrome.notifications?.create({
+      type: 'basic',
+      iconUrl: 'icon-48.png',
+      title: 'TTS Force Stop',
+      message: 'Text-to-Speech has been force stopped due to multiple stop attempts.'
+    });
+  }
+
+  // Tab change handlers
+  private handleTabChange(activeInfo: chrome.tabs.TabActiveInfo) {
+    // Stop TTS when switching tabs
+    if (this.isActive && this.currentTabId !== activeInfo.tabId) {
+      this.stopTTS({ source: 'navigation' });
+    }
+  }
+
+  private handleTabUpdate(tabId: number, changeInfo: chrome.tabs.TabChangeInfo, _tab: chrome.tabs.Tab) {
+    // Stop TTS when page reloads or navigates
+    if (changeInfo.status === 'loading' && this.currentTabId === tabId) {
+      this.stopTTS({ source: 'navigation' });
+    }
+  }
+
+  private handleTabRemoved(tabId: number, _removeInfo: chrome.tabs.TabRemoveInfo) {
+    // Clean up if the tab with active TTS is closed
+    if (this.currentTabId === tabId) {
+      this.forceCleanup();
+    }
+  }
+
   // Public API methods
   getState(): Record<string, unknown> {
     return {
       isActive: this.isActive,
-      currentTabId: this.currentTabId
+      currentTabId: this.currentTabId,
+      forceStopAttempts: this.forceStopAttempts,
+      hasTimeout: this.stopTimeout !== null
     };
   }
 }
@@ -573,6 +847,8 @@ try {
   
   // Link the managers for bi-directional communication
   selectionManager.setContextMenuManager(contextMenuManager);
+  contextMenuManager.setTTSManager(ttsManager);
+  ttsManager.setContextMenuManager(contextMenuManager);
   
   console.log('Background script loaded and ready');
   debugLog('Service worker started successfully');
@@ -619,8 +895,8 @@ chrome.runtime.onMessage.addListener(
     // Try TTS manager for TTS-related messages
     if (ttsManager) {
       try {
-        if ([MessageType.START_TTS, MessageType.STOP_TTS, MessageType.PAUSE_TTS, 
-             MessageType.RESUME_TTS, MessageType.TTS_STATE_CHANGED, MessageType.TTS_ERROR].includes(message.type)) {
+        if ([MessageType.START_TTS, MessageType.STOP_TTS, MessageType.FORCE_STOP_TTS, MessageType.PAUSE_TTS, 
+             MessageType.RESUME_TTS, MessageType.TTS_STATE_CHANGED, MessageType.TTS_ERROR, MessageType.GET_TTS_STATE].includes(message.type)) {
           ttsManager.handleMessage(message, sender)
             .then(response => sendResponse({ success: true, data: response }))
             .catch(error => sendResponse({ success: false, error: error.message }));
