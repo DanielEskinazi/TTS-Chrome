@@ -1,6 +1,6 @@
 # Feature 2.4: Stop Functionality
 
-**Status: ✅ COMPLETED** | **Completed Date: 2025-06-27** | **Commit: [pending]** | **Assignee: Claude** | **Git Tag: feature-2.4-completed**
+**Status: ✅ COMPLETED** | **Completed Date: 2025-06-27** | **Commit: 85e89e6** | **Assignee: Claude** | **Git Tag: feature-2.4-completed** | **Pull Request: [#6](https://github.com/DanielEskinazi/TTS-Chrome/pull/6)**
 
 ## Feature Overview
 

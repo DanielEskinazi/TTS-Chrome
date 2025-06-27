@@ -17,7 +17,7 @@
 - [x] **Feature 2.1**: Simple Text Selection ✅ *(Completed: 2025-06-26, Commit: 7229b0a)*
 - [x] **Feature 2.2**: Minimal Context Menu ✅ *(Completed: 2025-06-26, Commit: c70f1d4)*
 - [x] **Feature 2.3**: Basic Speech Output ✅ *(Completed: 2025-06-27, Commit: a5e7691)*
-- [x] **Feature 2.4**: Stop Functionality ✅ *(Completed: 2025-06-27, Commit: [pending])*
+- [x] **Feature 2.4**: Stop Functionality ✅ *(Completed: 2025-06-27, Commit: 85e89e6)*
 
 ### Phase 3: Popup UI (0% Complete - 0/4)
 - [ ] **Feature 3.1**: Basic Popup Structure
@@ -50,7 +50,7 @@
 
 ### Feature 2.4: Stop Functionality ✅
 - **Completed**: June 27, 2025
-- **Commit**: [pending]
+- **Commit**: 85e89e6
 - **Assignee**: Claude
 - **Duration**: Comprehensive stop functionality implementation
 - **Git Tag**: `feature-2.4-completed`
@@ -162,11 +162,11 @@
 - `feature-2.1-completed` - Simple Text Selection (7229b0a)
 - `feature-2.2-completed` - Minimal Context Menu (c70f1d4)
 - `feature-2.3-completed` - Basic Speech Output (a5e7691)
-- `feature-2.4-completed` - Stop Functionality ([pending])
+- `feature-2.4-completed` - Stop Functionality (85e89e6)
 
 ### Phase Completion Tags
 - `phase-1-completed` - Phase 1: Setup Complete (e788fae)
-- `phase-2-completed` - Phase 2: Basic TTS Complete ([pending])
+- `phase-2-completed` - Phase 2: Basic TTS Complete (85e89e6)
 
 ### Milestone Tags
 *(None yet - created at major project milestones)*
