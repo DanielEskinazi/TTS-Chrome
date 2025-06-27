@@ -13,6 +13,16 @@ const mockChrome = {
 // Set up Chrome mock globally
 (global as any).chrome = mockChrome;
 
+// Mock console.log to avoid test output noise
+const originalConsoleLog = console.log;
+beforeAll(() => {
+  console.log = jest.fn();
+});
+
+afterAll(() => {
+  console.log = originalConsoleLog;
+});
+
 describe('TTS Feedback in Content Script', () => {
   let messageListener: (request: any, sender: any, sendResponse: any) => void;
 
@@ -22,7 +32,7 @@ describe('TTS Feedback in Content Script', () => {
     
     // Mock document methods on existing global
     global.document.addEventListener = jest.fn();
-    global.document.createElement = jest.fn(() => ({
+    (global.document.createElement as jest.Mock) = jest.fn(() => ({
       appendChild: jest.fn(),
       removeChild: jest.fn(),
       classList: {
@@ -36,16 +46,23 @@ describe('TTS Feedback in Content Script', () => {
     }));
     global.document.body = global.document.body || {};
     global.document.body.appendChild = jest.fn();
-    global.document.head = global.document.head || {};
-    global.document.head.appendChild = jest.fn();
+    // Use Object.defineProperty for read-only properties
+    if (!global.document.head) {
+      Object.defineProperty(global.document, 'head', {
+        value: { appendChild: jest.fn() },
+        writable: true,
+        configurable: true
+      });
+    } else {
+      global.document.head.appendChild = jest.fn();
+    }
     
     // Mock window.getSelection
     (global as any).window = global.window || {};
-    global.window.getSelection = jest.fn(() => ({
+    (global.window.getSelection as any) = jest.fn(() => ({
       toString: jest.fn(() => ''),
       rangeCount: 0,
     }));
-    global.window.location = { href: 'https://example.com' };
     
     // Import and initialize TextSelectionHandler after mocks are set
     jest.isolateModules(() => {

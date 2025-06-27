@@ -351,6 +351,12 @@ describe('ContextMenuManager', () => {
       const mockSelectionManager = { hasSelection: jest.fn().mockReturnValue(true) };
       const manager = new MockContextMenuManager(mockSelectionManager);
       
+      // Ensure menu is created first
+      manager.createContextMenu();
+      // Wait for async menu creation
+      const createCallback = mockChrome.contextMenus.create.mock.calls[0][1];
+      createCallback();
+      
       manager.updateMenuState(true);
 
       expect(mockChrome.contextMenus.update).toHaveBeenCalledWith(
@@ -367,6 +373,11 @@ describe('ContextMenuManager', () => {
       const mockSelectionManager = { hasSelection: jest.fn().mockReturnValue(false) };
       const manager = new MockContextMenuManager(mockSelectionManager);
       
+      // Ensure menu is created first
+      manager.createContextMenu();
+      const createCallback = mockChrome.contextMenus.create.mock.calls[0][1];
+      createCallback();
+      
       manager.updateMenuState(false);
 
       expect(mockChrome.contextMenus.update).toHaveBeenCalledWith(
@@ -380,12 +391,23 @@ describe('ContextMenuManager', () => {
     });
 
     test('should handle update errors gracefully', () => {
-      mockChrome.runtime.lastError = { message: 'Update failed' };
       const mockSelectionManager = { hasSelection: jest.fn().mockReturnValue(false) };
       const manager = new MockContextMenuManager(mockSelectionManager);
       
+      // Ensure menu is created first
+      manager.createContextMenu();
+      const createCallback = mockChrome.contextMenus.create.mock.calls[0][1];
+      createCallback();
+      
+      // Set error for update
+      mockChrome.runtime.lastError = { message: 'Update failed' };
+      
       // Should not throw
       expect(() => manager.updateMenuState(true)).not.toThrow();
+      
+      // Call the update callback to trigger error logging
+      const updateCallback = mockChrome.contextMenus.update.mock.calls[0][2];
+      updateCallback();
       
       // Should log error
       expect(mockConsoleLog).toHaveBeenCalledWith('[TTS-Debug]', 'Error updating context menu:', { message: 'Update failed' });
@@ -474,11 +496,16 @@ describe('ContextMenuManager', () => {
       const mockSelectionManager = { hasSelection: jest.fn().mockReturnValue(true) };
       const manager = new MockContextMenuManager(mockSelectionManager);
       
+      // Clear previous calls
+      mockChrome.tabs.sendMessage.mockClear();
+      
       // Mock communication failure then success
       mockChrome.tabs.sendMessage
         .mockRejectedValueOnce(new Error('Tab not found'))
         .mockRejectedValueOnce(new Error('Tab not found'))
-        .mockResolvedValueOnce({ hasSelection: true, text: 'Hello' });
+        .mockResolvedValueOnce({ hasSelection: true, text: 'Hello' })
+        .mockResolvedValueOnce({ success: true }) // For SPEAK_SELECTION
+        .mockResolvedValueOnce({ success: true }); // For TTS_FEEDBACK
 
       const clickHandler = mockChrome.contextMenus.onClicked.addListener.mock.calls[0][0];
       
@@ -487,8 +514,20 @@ describe('ContextMenuManager', () => {
         { id: 123, url: 'https://example.com' }
       );
 
-      // Should have retried
-      expect(mockChrome.tabs.sendMessage).toHaveBeenCalledTimes(3);
+      // Should have called 3 times for GET_SELECTION (2 failures + 1 success)
+      // Plus 2 more times for SPEAK_SELECTION and TTS_FEEDBACK
+      expect(mockChrome.tabs.sendMessage).toHaveBeenCalledTimes(5);
+      
+      // Verify the retry pattern for GET_SELECTION
+      expect(mockChrome.tabs.sendMessage).toHaveBeenNthCalledWith(1, 123, {
+        type: MessageType.GET_SELECTION
+      });
+      expect(mockChrome.tabs.sendMessage).toHaveBeenNthCalledWith(2, 123, {
+        type: MessageType.GET_SELECTION
+      });
+      expect(mockChrome.tabs.sendMessage).toHaveBeenNthCalledWith(3, 123, {
+        type: MessageType.GET_SELECTION
+      });
     });
   });
 
