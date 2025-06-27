@@ -1,5 +1,7 @@
 # Feature 2.3: Basic Speech Output
 
+**Status: ✅ COMPLETED** | **Completed Date: 2025-06-27** | **Commit: [pending]** | **Assignee: Claude** | **Git Tag: feature-2.3-completed**
+
 ## Feature Overview
 
 Implement the core text-to-speech functionality using the Web Speech API to convert selected text into spoken audio. This feature integrates with the text selection (2.1) and context menu (2.2) to provide the fundamental TTS capability that users expect from the extension.

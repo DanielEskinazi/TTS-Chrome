@@ -10,6 +10,20 @@ export enum MessageType {
   STOP_SPEAKING = 'STOP_SPEAKING',
   TTS_FEEDBACK = 'TTS_FEEDBACK',
   
+  // Enhanced TTS operations with Web Speech API
+  START_TTS = 'START_TTS',
+  STOP_TTS = 'STOP_TTS',
+  PAUSE_TTS = 'PAUSE_TTS',
+  RESUME_TTS = 'RESUME_TTS',
+  TTS_STATE_CHANGED = 'TTS_STATE_CHANGED',
+  TTS_ERROR = 'TTS_ERROR',
+  
+  // Content script speech synthesis
+  START_SPEECH = 'START_SPEECH',
+  STOP_SPEECH = 'STOP_SPEECH',
+  PAUSE_SPEECH = 'PAUSE_SPEECH',
+  RESUME_SPEECH = 'RESUME_SPEECH',
+  
   // Content script
   CONTENT_READY = 'CONTENT_READY',
   HIGHLIGHT_TEXT = 'HIGHLIGHT_TEXT',
