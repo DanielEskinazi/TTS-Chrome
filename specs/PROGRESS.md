@@ -16,7 +16,7 @@
 ### Phase 2: Basic TTS (75% Complete - 3/4)
 - [x] **Feature 2.1**: Simple Text Selection ✅ *(Completed: 2025-06-26, Commit: 7229b0a)*
 - [x] **Feature 2.2**: Minimal Context Menu ✅ *(Completed: 2025-06-26, Commit: c70f1d4)*
-- [x] **Feature 2.3**: Basic Speech Output ✅ *(Completed: 2025-06-27, Commit: [pending])*
+- [x] **Feature 2.3**: Basic Speech Output ✅ *(Completed: 2025-06-27, Commit: a5e7691)*
 - [ ] **Feature 2.4**: Stop Functionality
 
 ### Phase 3: Popup UI (0% Complete - 0/4)
@@ -50,7 +50,7 @@
 
 ### Feature 2.3: Basic Speech Output ✅
 - **Completed**: June 27, 2025
-- **Commit**: [pending]
+- **Commit**: a5e7691
 - **Assignee**: Claude
 - **Duration**: Web Speech API integration
 - **Git Tag**: `feature-2.3-completed`
@@ -142,7 +142,7 @@
 - `feature-1.3-completed` - Minimal Extension Structure (e788fae)
 - `feature-2.1-completed` - Simple Text Selection (7229b0a)
 - `feature-2.2-completed` - Minimal Context Menu (c70f1d4)
-- `feature-2.3-completed` - Basic Speech Output ([pending])
+- `feature-2.3-completed` - Basic Speech Output (a5e7691)
 
 ### Phase Completion Tags
 - `phase-1-completed` - Phase 1: Setup Complete (e788fae)
