@@ -252,7 +252,7 @@ class TextSelectionHandler {
     notification.className = `tts-notification tts-notification-${type}`;
     notification.textContent = message;
     
-    // Add styles with proper z-index and positioning
+    // Add styles with proper isolation and clean appearance
     notification.style.cssText = `
       position: fixed;
       top: 20px;
@@ -270,7 +270,9 @@ class TextSelectionHandler {
       transition: transform 0.3s ease-out;
       max-width: 320px;
       word-wrap: break-word;
-      border: 1px solid rgba(255,255,255,0.2);
+      border: none;
+      outline: none;
+      box-sizing: border-box;
     `;
     
     return notification;
@@ -502,8 +504,7 @@ class ContentScriptController {
       payload: { text },
     });
 
-    // Visual feedback
-    this.showSpeakingIndicator();
+    // Visual feedback is now handled by the new TTS feedback system
   }
 
   private speakFullPage() {
@@ -551,30 +552,6 @@ class ContentScriptController {
     this.highlightedElements = [];
   }
 
-  private showSpeakingIndicator() {
-    const indicator = document.createElement('div');
-    indicator.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: #2196f3;
-      color: white;
-      padding: 12px 24px;
-      border-radius: 4px;
-      font-family: -apple-system, sans-serif;
-      font-size: 14px;
-      z-index: 999999;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-    `;
-    indicator.textContent = '🔊 Speaking...';
-    indicator.classList.add('tts-pulse');
-
-    document.body.appendChild(indicator);
-
-    setTimeout(() => {
-      indicator.remove();
-    }, 3000);
-  }
 
   private applySettings(settings: Record<string, unknown>) {
     if (settings.fontSize && typeof settings.fontSize === 'number') {
