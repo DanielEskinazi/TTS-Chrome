@@ -1,5 +1,6 @@
 import { MessageType, Message } from '@common/types/messages';
 import { devLog } from '@common/dev-utils';
+import { SpeechSynthesizer } from '@common/speech-synthesizer';
 
 interface SelectionInfo {
   text: string;
@@ -17,8 +18,16 @@ class TextSelectionHandler {
   private selectionText: string = '';
   private isSelectionActive: boolean = false;
   private selectionInfo: SelectionInfo | null = null;
+  private speechSynthesizer: SpeechSynthesizer | null = null;
 
   constructor() {
+    try {
+      this.speechSynthesizer = new SpeechSynthesizer();
+    } catch (error) {
+      console.warn('SpeechSynthesizer not available:', error);
+      // Gracefully handle cases where SpeechSynthesizer is not available (e.g., tests)
+      this.speechSynthesizer = null;
+    }
     this.init();
   }
 
@@ -193,6 +202,26 @@ class TextSelectionHandler {
         sendResponse({ success: true });
         break;
         
+      case MessageType.START_SPEECH:
+        this.handleStartSpeech(request.payload || {});
+        sendResponse({ success: true });
+        break;
+        
+      case MessageType.STOP_SPEECH:
+        this.handleStopSpeech();
+        sendResponse({ success: true });
+        break;
+        
+      case MessageType.PAUSE_SPEECH:
+        this.handlePauseSpeech();
+        sendResponse({ success: true });
+        break;
+        
+      case MessageType.RESUME_SPEECH:
+        this.handleResumeSpeech();
+        sendResponse({ success: true });
+        break;
+        
       default:
         // Don't handle other message types here
         break;
@@ -306,6 +335,80 @@ class TextSelectionHandler {
     
     // Reset selection state
     this.clearSelection();
+  }
+
+  private async handleStartSpeech(data: Record<string, unknown>): Promise<void> {
+    try {
+      const text = data.text as string;
+      
+      if (!text || typeof text !== 'string') {
+        throw new Error('No text provided for speech synthesis');
+      }
+
+      if (!this.speechSynthesizer) {
+        throw new Error('Speech synthesizer not available');
+      }
+
+      if (!this.speechSynthesizer.isReady()) {
+        throw new Error('Speech synthesizer not ready');
+      }
+
+      await this.speechSynthesizer.speak(text);
+      
+      this.showUserFeedback('🔊 Speech started', 'success');
+      
+    } catch (error) {
+      console.error('Error starting speech:', error);
+      this.showUserFeedback('❌ Speech error: ' + (error as Error).message, 'error');
+    }
+  }
+
+  private handleStopSpeech(): void {
+    try {
+      if (!this.speechSynthesizer) {
+        this.showUserFeedback('⚠️ Speech synthesizer not available', 'warning');
+        return;
+      }
+      this.speechSynthesizer.stop();
+      this.showUserFeedback('⏹️ Speech stopped', 'info');
+    } catch (error) {
+      console.error('Error stopping speech:', error);
+      this.showUserFeedback('❌ Error stopping speech', 'error');
+    }
+  }
+
+  private handlePauseSpeech(): void {
+    try {
+      if (!this.speechSynthesizer) {
+        this.showUserFeedback('⚠️ Speech synthesizer not available', 'warning');
+        return;
+      }
+      if (this.speechSynthesizer.pause()) {
+        this.showUserFeedback('⏸️ Speech paused', 'info');
+      } else {
+        this.showUserFeedback('⚠️ Speech not playing', 'warning');
+      }
+    } catch (error) {
+      console.error('Error pausing speech:', error);
+      this.showUserFeedback('❌ Error pausing speech', 'error');
+    }
+  }
+
+  private handleResumeSpeech(): void {
+    try {
+      if (!this.speechSynthesizer) {
+        this.showUserFeedback('⚠️ Speech synthesizer not available', 'warning');
+        return;
+      }
+      if (this.speechSynthesizer.resume()) {
+        this.showUserFeedback('▶️ Speech resumed', 'info');
+      } else {
+        this.showUserFeedback('⚠️ Speech not paused', 'warning');
+      }
+    } catch (error) {
+      console.error('Error resuming speech:', error);
+      this.showUserFeedback('❌ Error resuming speech', 'error');
+    }
   }
 
   private safeGetSelection(): Selection | null {

@@ -288,9 +288,9 @@ class ContextMenuManager {
   }
 
   private async startTTS(text: string, tab: chrome.tabs.Tab): Promise<void> {
-    // Send message to start TTS
+    // Send message to start TTS using Web Speech API in content script
     return chrome.tabs.sendMessage(tab.id!, {
-      type: MessageType.SPEAK_SELECTION,
+      type: MessageType.START_SPEECH,
       payload: { text: text }
     });
   }
@@ -370,13 +370,206 @@ class ContextMenuManager {
   }
 }
 
+class TTSManager {
+  private isActive = false;
+  private currentTabId: number | null = null;
+
+  constructor() {
+    this.init();
+  }
+
+  private init(): void {
+    console.log('TTS Manager initialized');
+  }
+
+  async handleMessage(request: Message, sender: chrome.runtime.MessageSender): Promise<Record<string, unknown>> {
+    switch (request.type) {
+      case MessageType.START_TTS:
+        return await this.startTTS(request.payload, sender);
+        
+      case MessageType.STOP_TTS:
+        return await this.stopTTS();
+        
+      case MessageType.PAUSE_TTS:
+        return await this.pauseTTS();
+        
+      case MessageType.RESUME_TTS:
+        return await this.resumeTTS();
+        
+      case MessageType.TTS_STATE_CHANGED:
+        return this.handleStateChange(request.payload || {});
+        
+      case MessageType.TTS_ERROR:
+        return this.handleTTSError(request.payload || {});
+        
+      default:
+        throw new Error('Unknown TTS message type');
+    }
+  }
+
+  private async startTTS(data: Record<string, unknown> | undefined, sender: chrome.runtime.MessageSender): Promise<Record<string, unknown>> {
+    try {
+      if (!data || typeof data.text !== 'string') {
+        throw new Error('No text provided for TTS');
+      }
+
+      const { text } = data;
+      const tabId = typeof data.tabId === 'number' ? data.tabId : sender.tab?.id;
+      
+      if (!tabId) {
+        throw new Error('No tab ID available for TTS');
+      }
+
+      // Stop any existing TTS
+      if (this.isActive) {
+        await this.stopTTS();
+      }
+
+      // Send speech command to content script
+      await chrome.tabs.sendMessage(tabId, {
+        type: MessageType.START_SPEECH,
+        payload: { text: text }
+      });
+
+      this.isActive = true;
+      this.currentTabId = tabId;
+      
+      console.log('TTS started for text:', text.substring(0, 50) + '...');
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Error starting TTS:', error);
+      throw error;
+    }
+  }
+
+  private async stopTTS(): Promise<Record<string, unknown>> {
+    if (this.isActive && this.currentTabId) {
+      try {
+        await chrome.tabs.sendMessage(this.currentTabId, {
+          type: MessageType.STOP_SPEECH
+        });
+        
+        this.isActive = false;
+        this.currentTabId = null;
+        
+        console.log('TTS stopped');
+      } catch (error) {
+        console.error('Error stopping TTS:', error);
+        // Reset state even if message fails
+        this.isActive = false;
+        this.currentTabId = null;
+      }
+    }
+    return { success: true };
+  }
+
+  private async pauseTTS(): Promise<Record<string, unknown>> {
+    if (this.isActive && this.currentTabId) {
+      try {
+        await chrome.tabs.sendMessage(this.currentTabId, {
+          type: MessageType.PAUSE_SPEECH
+        });
+      } catch (error) {
+        console.error('Error pausing TTS:', error);
+      }
+    }
+    return { success: true };
+  }
+
+  private async resumeTTS(): Promise<Record<string, unknown>> {
+    if (this.isActive && this.currentTabId) {
+      try {
+        await chrome.tabs.sendMessage(this.currentTabId, {
+          type: MessageType.RESUME_SPEECH
+        });
+      } catch (error) {
+        console.error('Error resuming TTS:', error);
+      }
+    }
+    return { success: true };
+  }
+
+  private handleStateChange(data: Record<string, unknown>): Record<string, unknown> {
+    const state = data.state as string;
+    
+    switch (state) {
+      case 'started':
+        this.isActive = true;
+        break;
+        
+      case 'ended':
+      case 'stopped':
+        this.isActive = false;
+        this.currentTabId = null;
+        break;
+        
+      case 'paused':
+      case 'resumed':
+        // State remains active
+        break;
+    }
+    
+    // Broadcast state change to interested parties (popup, etc.)
+    this.broadcastStateChange(state, data.playbackState as Record<string, unknown> || {});
+    
+    return { success: true };
+  }
+
+  private handleTTSError(errorData: Record<string, unknown>): Record<string, unknown> {
+    console.error('TTS Error:', errorData);
+    
+    // Reset state on error
+    this.isActive = false;
+    this.currentTabId = null;
+    
+    // Show error notification if possible
+    this.showErrorNotification(errorData);
+    
+    return { success: true };
+  }
+
+  private broadcastStateChange(state: string, playbackState: Record<string, unknown>): void {
+    // Send to popup if open
+    chrome.runtime.sendMessage({
+      type: MessageType.TTS_STATE_CHANGED,
+      payload: { state, playbackState }
+    }).catch(() => {
+      // Popup may not be open, ignore error
+    });
+  }
+
+  private showErrorNotification(errorData: Record<string, unknown>): void {
+    // Show browser notification for critical errors
+    const errorType = errorData.errorType as string;
+    if (errorType === 'initialization' || errorType === 'permission') {
+      chrome.notifications?.create({
+        type: 'basic',
+        iconUrl: 'icon-48.png',
+        title: 'TTS Error',
+        message: 'Text-to-Speech functionality is not available. Please check your browser settings.'
+      });
+    }
+  }
+
+  // Public API methods
+  getState(): Record<string, unknown> {
+    return {
+      isActive: this.isActive,
+      currentTabId: this.currentTabId
+    };
+  }
+}
+
 // Initialize selection manager and context menu manager with error handling
 let selectionManager: SelectionManager;
 let contextMenuManager: ContextMenuManager;
+let ttsManager: TTSManager;
 
 try {
   selectionManager = new SelectionManager();
   contextMenuManager = new ContextMenuManager(selectionManager);
+  ttsManager = new TTSManager();
   
   // Link the managers for bi-directional communication
   selectionManager.setContextMenuManager(contextMenuManager);
@@ -419,6 +612,22 @@ chrome.runtime.onMessage.addListener(
       const selectionResponse = selectionManager.handleSelectionMessage(message, sender);
       if (selectionResponse !== null) {
         sendResponse({ success: true, data: selectionResponse });
+        return true;
+      }
+    }
+
+    // Try TTS manager for TTS-related messages
+    if (ttsManager) {
+      try {
+        if ([MessageType.START_TTS, MessageType.STOP_TTS, MessageType.PAUSE_TTS, 
+             MessageType.RESUME_TTS, MessageType.TTS_STATE_CHANGED, MessageType.TTS_ERROR].includes(message.type)) {
+          ttsManager.handleMessage(message, sender)
+            .then(response => sendResponse({ success: true, data: response }))
+            .catch(error => sendResponse({ success: false, error: error.message }));
+          return true; // Will respond asynchronously
+        }
+      } catch (error) {
+        sendResponse({ success: false, error: (error as Error).message });
         return true;
       }
     }
