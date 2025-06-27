@@ -2,8 +2,8 @@
 
 ## Project Overview
 - **Total Features**: 23
-- **Completed Features**: 4
-- **Progress**: 17.4% (4/23)
+- **Completed Features**: 5
+- **Progress**: 21.7% (5/23)
 - **Current Phase**: Phase 2 - Basic TTS
 
 ## Phase Progress
@@ -13,9 +13,9 @@
 - [x] **Feature 1.2**: Development Environment ✅ *(Completed: 2025-06-25, Commit: 9a52fc8)*
 - [x] **Feature 1.3**: Minimal Extension ✅ *(Completed: 2025-06-26, Commit: e788fae)*
 
-### Phase 2: Basic TTS (25% Complete - 1/4)
+### Phase 2: Basic TTS (50% Complete - 2/4)
 - [x] **Feature 2.1**: Simple Text Selection ✅ *(Completed: 2025-06-26, Commit: 7229b0a)*
-- [ ] **Feature 2.2**: Minimal Context Menu
+- [x] **Feature 2.2**: Minimal Context Menu ✅ *(Completed: 2025-06-26, Commit: c70f1d4)*
 - [ ] **Feature 2.3**: Basic Speech Output
 - [ ] **Feature 2.4**: Stop Functionality
 
@@ -107,13 +107,13 @@
 | Phase | Features | Completed | Progress | Status |
 |-------|----------|-----------|----------|---------|
 | Phase 1 | 3 | 3 | 100% | ✅ Complete |
-| Phase 2 | 4 | 1 | 25% | 🟡 In Progress |
+| Phase 2 | 4 | 2 | 50% | 🟡 In Progress |
 | Phase 3 | 4 | 0 | 0% | ⚪ Not Started |
 | Phase 4 | 4 | 0 | 0% | ⚪ Not Started |
 | Phase 5 | 3 | 0 | 0% | ⚪ Not Started |
 | Phase 6 | 3 | 0 | 0% | ⚪ Not Started |
 | Phase 7 | 3 | 0 | 0% | ⚪ Not Started |
-| **Total** | **23** | **4** | **17.4%** | **🟡 In Progress** |
+| **Total** | **23** | **5** | **21.7%** | **🟡 In Progress** |
 
 ## Git Tags
 
@@ -122,6 +122,7 @@
 - `feature-1.2-completed` - Development Environment (9a52fc8)
 - `feature-1.3-completed` - Minimal Extension Structure (e788fae)
 - `feature-2.1-completed` - Simple Text Selection (7229b0a)
+- `feature-2.2-completed` - Minimal Context Menu (c70f1d4)
 
 ### Phase Completion Tags
 - `phase-1-completed` - Phase 1: Setup Complete (e788fae)
@@ -130,6 +131,25 @@
 *(None yet - created at major project milestones)*
 
 ## Recently Completed
+
+### Feature 2.2: Minimal Context Menu ✅
+- **Completed**: June 26, 2025
+- **Commit**: c70f1d4
+- **Assignee**: Claude
+- **Duration**: Context menu implementation
+- **Git Tag**: `feature-2.2-completed`
+
+**Accomplishments:**
+- ✅ Created ContextMenuManager class with comprehensive menu management
+- ✅ Context menu creation with proper state synchronization
+- ✅ Dynamic menu enabling/disabling based on text selection
+- ✅ Enhanced error handling with categorization and retry logic
+- ✅ User feedback notifications in content script
+- ✅ TTS trigger functionality from context menu clicks
+- ✅ Fallback support for browser's default selection text
+- ✅ Cross-tab state management and cleanup
+- ✅ Comprehensive unit test coverage
+- ✅ TypeScript strict mode compliance and build validation
 
 ### Feature 2.1: Simple Text Selection ✅
 - **Completed**: June 26, 2025
