@@ -4,7 +4,6 @@ const debugLog = (...args: unknown[]) => console.log('[TTS-Popup-Debug]', ...arg
 
 class PopupController {
   private elements: {
-    toggleEnabled: HTMLButtonElement;
     speakPage: HTMLButtonElement;
     testText: HTMLTextAreaElement;
     testSpeak: HTMLButtonElement;
@@ -20,7 +19,6 @@ class PopupController {
   };
 
   private state = {
-    enabled: true,
     fontSize: 16,
     theme: 'light' as 'light' | 'dark',
   };
@@ -32,7 +30,6 @@ class PopupController {
 
   constructor() {
     this.elements = {
-      toggleEnabled: document.getElementById('toggleEnabled') as HTMLButtonElement,
       speakPage: document.getElementById('speakPage') as HTMLButtonElement,
       testText: document.getElementById('testText') as HTMLTextAreaElement,
       testSpeak: document.getElementById('testSpeak') as HTMLButtonElement,
@@ -68,7 +65,6 @@ class PopupController {
   }
 
   private setupEventListeners() {
-    this.elements.toggleEnabled.addEventListener('click', () => this.toggleEnabled());
     this.elements.speakPage.addEventListener('click', () => this.speakCurrentPage());
     this.elements.testSpeak.addEventListener('click', () => this.testSpeech());
     this.elements.stopBtn.addEventListener('click', () => this.handleStop());
@@ -89,17 +85,6 @@ class PopupController {
     });
   }
 
-  private async toggleEnabled() {
-    this.state.enabled = !this.state.enabled;
-
-    const message: Message = {
-      type: MessageType.UPDATE_SETTINGS,
-      payload: { enabled: this.state.enabled },
-    };
-
-    await chrome.runtime.sendMessage(message);
-    this.updateUI();
-  }
 
   private async speakCurrentPage() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -290,21 +275,10 @@ class PopupController {
   }
 
   private updateUI() {
-    // Update button text and status
-    this.elements.toggleEnabled.querySelector('.btn-text')!.textContent = this.state.enabled
-      ? 'Disable TTS'
-      : 'Enable TTS';
-
-    this.elements.status.classList.toggle('inactive', !this.state.enabled);
-
     // Update settings display
     this.elements.fontSizeValue.textContent = `${this.state.fontSize}px`;
     this.elements.themeValue.textContent =
       this.state.theme.charAt(0).toUpperCase() + this.state.theme.slice(1);
-
-    // Disable/enable buttons based on state
-    this.elements.speakPage.disabled = !this.state.enabled;
-    this.elements.testSpeak.disabled = !this.state.enabled;
     
     // Update TTS UI
     this.updateTTSUI();

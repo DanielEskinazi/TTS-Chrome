@@ -878,7 +878,6 @@ chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
     try {
       chrome.storage.sync.set({
-        enabled: true,
         theme: 'light',
         fontSize: 16,
       });
@@ -974,7 +973,7 @@ try {
 // Handler functions
 async function handleGetState(sendResponse: (response: MessageResponse) => void) {
   try {
-    const state = await chrome.storage.sync.get(['enabled', 'theme', 'fontSize']);
+    const state = await chrome.storage.sync.get(['theme', 'fontSize']);
     sendResponse({ success: true, data: state });
   } catch (error) {
     sendResponse({ success: false, error: (error as Error).message });
