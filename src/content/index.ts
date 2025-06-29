@@ -238,7 +238,7 @@ class TextSelectionHandler {
     });
   }
 
-  private handleMessage(request: Message, _sender: chrome.runtime.MessageSender, sendResponse: (response?: Record<string, unknown>) => void) {
+  public handleMessage(request: Message, _sender: chrome.runtime.MessageSender, sendResponse: (response?: Record<string, unknown>) => void) {
     switch (request.type) {
       case MessageType.GET_SELECTION:
         sendResponse({
@@ -749,10 +749,12 @@ class ContentScriptController {
   private speakText(text: string) {
     if (!text) return;
 
-    chrome.runtime.sendMessage({
-      type: MessageType.SPEAK_TEXT,
-      payload: { text },
-    });
+    // Use the unified Web Speech API flow through TextSelectionHandler
+    // This ensures proper state tracking and stop functionality
+    this.textSelectionHandler.handleMessage({
+      type: MessageType.START_SPEECH,
+      payload: { text }
+    }, {} as chrome.runtime.MessageSender, () => {});
 
     // Visual feedback is now handled by the new TTS feedback system
   }

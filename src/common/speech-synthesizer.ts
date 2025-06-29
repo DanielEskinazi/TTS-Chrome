@@ -290,6 +290,13 @@ export class SpeechSynthesizer {
       };
       
       utterance.onerror = (event: SpeechSynthesisErrorEvent) => {
+        // Check if this is an expected interruption
+        if (event.error === 'interrupted' || event.error === 'canceled') {
+          // This is expected when stopping TTS - don't treat as error
+          resolve(); // Resolve instead of reject for interruptions
+          return;
+        }
+        
         this.onError(event);
         reject(new Error(`Speech synthesis error: ${event.error}`));
       };

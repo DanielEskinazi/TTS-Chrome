@@ -126,27 +126,26 @@ class PopupController {
       return;
     }
 
-    console.log('Sending SPEAK_TEXT message with text:', text);
-    debugLog('Preparing message payload:', { type: MessageType.SPEAK_TEXT, text });
-    
-    const message: Message = {
-      type: MessageType.SPEAK_TEXT,
-      payload: { text },
-    };
-
     try {
-      debugLog('Sending message to background script...');
-      const response = await chrome.runtime.sendMessage(message);
+      // Get the active tab and send START_SPEECH message to content script
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       
-      // Check for chrome.runtime.lastError
-      if (chrome.runtime.lastError) {
-        console.error('Chrome runtime error:', chrome.runtime.lastError.message);
-        debugLog('Chrome runtime error:', chrome.runtime.lastError.message);
-        this.elements.testText.placeholder = 'Error: ' + chrome.runtime.lastError.message;
-        return;
+      if (!tab.id) {
+        throw new Error('No active tab found');
       }
+
+      console.log('Sending START_SPEECH message to content script with text:', text);
+      debugLog('Preparing message payload:', { type: MessageType.START_SPEECH, text });
       
-      console.log('Response from background:', response);
+      const message: Message = {
+        type: MessageType.START_SPEECH,
+        payload: { text },
+      };
+
+      debugLog('Sending message to content script...');
+      const response = await chrome.tabs.sendMessage(tab.id, message);
+      
+      console.log('Response from content script:', response);
       debugLog('Full response object:', response);
 
       if (response && response.success) {

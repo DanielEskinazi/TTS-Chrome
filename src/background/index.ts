@@ -936,11 +936,8 @@ chrome.runtime.onMessage.addListener(
         return true;
 
       case MessageType.SPEAK_TEXT:
-        if (message.payload && typeof message.payload === 'object' && 'text' in message.payload) {
-          handleSpeakText(message.payload as { text: string }, sendResponse);
-        } else {
-          sendResponse({ success: false, error: 'No text provided' });
-        }
+        // Deprecated: Use Web Speech API flow via START_SPEECH instead
+        sendResponse({ success: false, error: 'SPEAK_TEXT is deprecated, use Web Speech API flow' });
         return true;
 
       case MessageType.CONTENT_READY:
@@ -1006,50 +1003,7 @@ async function handleUpdateSettings(
   }
 }
 
-async function handleSpeakText(
-  payload: { text: string },
-  sendResponse: (response: MessageResponse) => void
-) {
-  try {
-    debugLog('handleSpeakText called with payload:', payload);
-    
-    // Check if TTS API is available
-    if (!chrome.tts) {
-      const error = 'TTS API not available';
-      debugLog('Error:', error);
-      sendResponse({ success: false, error });
-      return;
-    }
-    
-    // Check if we have voices available
-    chrome.tts.getVoices((voices) => {
-      debugLog('Available TTS voices:', voices.length);
-      if (voices.length === 0) {
-        debugLog('Warning: No TTS voices available');
-      } else {
-        debugLog('Sample voices:', voices.slice(0, 3).map(v => v.voiceName));
-      }
-    });
-    
-    debugLog('Calling chrome.tts.speak with text:', payload.text.substring(0, 50) + '...');
-    
-    // Simplified TTS call to avoid callback issues that might crash the service worker
-    chrome.tts.speak(payload.text, {
-      rate: 1.0,
-      pitch: 1.0,
-      volume: 1.0,
-    });
-    
-    // Send immediate success response
-    debugLog('TTS speak called successfully');
-    sendResponse({ success: true });
-    
-  } catch (error) {
-    const errorMessage = (error as Error).message;
-    debugLog('Exception in handleSpeakText:', error);
-    sendResponse({ success: false, error: errorMessage });
-  }
-}
+// Removed handleSpeakText function - all TTS now uses Web Speech API flow for consistent state tracking
 
 // Keep service worker alive
 chrome.runtime.onConnect.addListener((port) => {
