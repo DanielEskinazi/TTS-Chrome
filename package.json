@@ -32,12 +32,12 @@
   "author": "Your Name",
   "license": "MIT",
   "devDependencies": {
+    "@microsoft/eslint-formatter-sarif": "^3.1.0",
     "@types/chrome": "^0.0.268",
     "@types/jest": "^29.5.10",
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
-    "@microsoft/eslint-formatter-sarif": "^3.1.0",
     "autoprefixer": "^10.4.21",
     "chokidar": "^4.0.3",
     "clean-webpack-plugin": "^4.0.0",
@@ -61,5 +61,15 @@
     "webpack-bundle-analyzer": "^4.10.2",
     "webpack-cli": "^5.1.4",
     "ws": "^8.18.2"
+  },
+  "dependencies": {
+    "@tailwindcss/postcss": "^4.1.11",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "daisyui": "^5.0.43",
+    "lucide-react": "^0.525.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwindcss": "^4.1.11"
   }
 }
