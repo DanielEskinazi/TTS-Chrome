@@ -3,6 +3,8 @@
  * Provides robust text-to-speech functionality with error handling and retry logic
  */
 
+import { MessageType } from './types/messages';
+
 export interface SpeechSettings {
   rate: number;
   pitch: number;
@@ -320,6 +322,15 @@ export class SpeechSynthesizer {
     try {
       await this.speakChunk(nextItem.text, nextItem.options);
     } catch (error) {
+      // Check if this is an expected interruption error
+      const errorMessage = (error as Error).message || '';
+      const isInterrupted = errorMessage.includes('interrupted') || errorMessage.includes('canceled');
+      
+      if (isInterrupted) {
+        console.log('Speech queue processing interrupted (expected when stopping)');
+        return;
+      }
+      
       console.error('Error processing speech queue:', error);
       this.handleSpeechError(error as Error);
     }
@@ -364,8 +375,8 @@ export class SpeechSynthesizer {
     // Send message to background script
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.sendMessage({
-        type: 'TTS_STATE_CHANGED',
-        data: {
+        type: MessageType.TTS_STATE_CHANGED,
+        payload: {
           state: state,
           playbackState: this.getPlaybackState(),
           timestamp: Date.now()
@@ -377,6 +388,18 @@ export class SpeechSynthesizer {
   }
 
   private handleSpeechError(error: Error | SpeechSynthesisErrorEvent): void {
+    // Check if this is an expected "interrupted" error from stopping TTS
+    const errorMessage = 'error' in error ? error.error : error.message || 'unknown';
+    const isInterrupted = errorMessage.includes('interrupted') || errorMessage.includes('canceled');
+    
+    if (isInterrupted) {
+      // This is expected when TTS is stopped - don't log as an error
+      console.log('Speech synthesis interrupted (expected when stopping)');
+      this.stop(); // Clean up state
+      return;
+    }
+    
+    // Only log and handle unexpected errors
     console.error('Speech synthesis error:', error);
     
     this.stop(); // Clean up state
@@ -402,8 +425,8 @@ export class SpeechSynthesizer {
   private notifyError(errorType: ErrorType, originalError: Error | SpeechSynthesisErrorEvent): void {
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.sendMessage({
-        type: 'TTS_ERROR',
-        data: {
+        type: MessageType.TTS_ERROR,
+        payload: {
           errorType: errorType,
           error: 'message' in originalError ? originalError.message : originalError.error || 'Unknown error',
           timestamp: Date.now()

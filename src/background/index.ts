@@ -533,7 +533,7 @@ class TTSManager {
         return await this.resumeTTS();
         
       case MessageType.TTS_STATE_CHANGED:
-        return this.handleStateChange(request.payload || {});
+        return this.handleStateChange(request.payload || {}, sender);
         
       case MessageType.TTS_ERROR:
         return this.handleTTSError(request.payload || {});
@@ -720,12 +720,25 @@ class TTSManager {
     }
   }
 
-  private handleStateChange(data: Record<string, unknown>): Record<string, unknown> {
+  private handleStateChange(data: Record<string, unknown>, sender?: chrome.runtime.MessageSender): Record<string, unknown> {
     const state = data.state as string;
     
     switch (state) {
       case 'started':
         this.isActive = true;
+        // Set currentTabId from the message sender
+        if (sender?.tab?.id) {
+          this.currentTabId = sender.tab.id;
+        } else if (!this.currentTabId) {
+          // Fallback to active tab if sender doesn't have tab info
+          chrome.tabs.query({ active: true, currentWindow: true }).then(tabs => {
+            if (tabs[0]?.id) {
+              this.currentTabId = tabs[0].id;
+            }
+          }).catch(error => {
+            console.warn('Could not get active tab:', error);
+          });
+        }
         break;
         
       case 'ended':
