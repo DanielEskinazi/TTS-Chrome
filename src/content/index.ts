@@ -56,7 +56,10 @@ class TextSelectionHandler {
     this.setupKeyboardShortcuts();
     
     devLog('TTS Text Selection Handler initialized');
-    console.log('🔊 TTS Text Selection Handler initialized - Extension is working!');
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.log('🔊 TTS Text Selection Handler initialized - Extension is working!');
+    }
   }
 
   private handleSelectionChange() {
@@ -171,7 +174,10 @@ class TextSelectionHandler {
       
       // Notify background script of new selection
       this.notifySelectionChange();
-      console.log('📝 Text selected:', this.selectionText.substring(0, 50) + '...');
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.log('📝 Text selected:', this.selectionText.substring(0, 50) + '...');
+      }
     }
   }
 
@@ -238,7 +244,7 @@ class TextSelectionHandler {
     });
   }
 
-  public handleMessage(request: Message, _sender: chrome.runtime.MessageSender, sendResponse: (response?: Record<string, unknown>) => void) {
+  public handleMessage(request: Message, _sender: chrome.runtime.MessageSender, sendResponse: (response?: Record<string, unknown>) => void): void {
     switch (request.type) {
       case MessageType.GET_SELECTION:
         sendResponse({

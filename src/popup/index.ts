@@ -1,6 +1,11 @@
 import { MessageType, Message } from '@common/types/messages';
 // Temporary debug logging - replace devLog with console.log for debugging  
-const debugLog = (...args: unknown[]) => console.log('[TTS-Popup-Debug]', ...args);
+const debugLog = (...args: unknown[]) => {
+  if (process.env.NODE_ENV === 'development') {
+    // eslint-disable-next-line no-console
+    console.log('[TTS-Popup-Debug]', ...args);
+  }
+};
 
 class PopupController {
   private elements: {
@@ -98,14 +103,14 @@ class PopupController {
   }
 
   private async testSpeech() {
-    console.log('Test Speech button clicked');
+    debugLog('Test Speech button clicked');
     debugLog('Test Speech button clicked - starting debug trace');
     
     const text = this.elements.testText.value.trim();
     debugLog('Text to speak:', text);
 
     if (!text) {
-      console.log('No text entered');
+      debugLog('No text entered');
       debugLog('No text entered - showing placeholder');
       this.elements.testText.placeholder = 'Please enter some text...';
       return;
@@ -119,7 +124,7 @@ class PopupController {
         throw new Error('No active tab found');
       }
 
-      console.log('Sending START_SPEECH message to content script with text:', text);
+      debugLog('Sending START_SPEECH message to content script with text:', text);
       debugLog('Preparing message payload:', { type: MessageType.START_SPEECH, text });
       
       const message: Message = {
@@ -130,7 +135,7 @@ class PopupController {
       debugLog('Sending message to content script...');
       const response = await chrome.tabs.sendMessage(tab.id, message);
       
-      console.log('Response from content script:', response);
+      debugLog('Response from content script:', response);
       debugLog('Full response object:', response);
 
       if (response && response.success) {
@@ -287,6 +292,6 @@ class PopupController {
 
 // Initialize popup when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('Popup DOM loaded, initializing controller...');
+  debugLog('Popup DOM loaded, initializing controller...');
   new PopupController();
 });

@@ -64,7 +64,10 @@ export class SpeechSynthesizer {
       this.setupSpeechEvents();
       
       this.isInitialized = true;
-      console.log('Speech Synthesizer initialized');
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.log('Speech Synthesizer initialized');
+      }
       
     } catch (error) {
       console.error('Failed to initialize Speech Synthesizer:', error);
@@ -111,7 +114,10 @@ export class SpeechSynthesizer {
     this.defaultVoice = this.selectDefaultVoice(this.availableVoices);
     this.settings.voice = this.defaultVoice;
     
-    console.log(`Loaded ${this.availableVoices.length} voices, default: ${this.defaultVoice?.name}`);
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.log(`Loaded ${this.availableVoices.length} voices, default: ${this.defaultVoice?.name}`);
+    }
   }
 
   private selectDefaultVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
@@ -334,11 +340,15 @@ export class SpeechSynthesizer {
       const isInterrupted = errorMessage.includes('interrupted') || errorMessage.includes('canceled');
       
       if (isInterrupted) {
-        console.log('Speech queue processing interrupted (expected when stopping)');
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.log('Speech queue processing interrupted (expected when stopping)');
+        }
         return;
       }
       
-      console.error('Error processing speech queue:', error);
+      // eslint-disable-next-line no-console
+    console.error('Error processing speech queue:', error);
       this.handleSpeechError(error as Error);
     }
   }
@@ -389,7 +399,10 @@ export class SpeechSynthesizer {
           timestamp: Date.now()
         }
       }).catch(error => {
-        console.log('Could not notify playback state:', error);
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.log('Could not notify playback state:', error);
+        }
       });
     }
   }
@@ -401,12 +414,16 @@ export class SpeechSynthesizer {
     
     if (isInterrupted) {
       // This is expected when TTS is stopped - don't log as an error
-      console.log('Speech synthesis interrupted (expected when stopping)');
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.log('Speech synthesis interrupted (expected when stopping)');
+      }
       this.stop(); // Clean up state
       return;
     }
     
     // Only log and handle unexpected errors
+    // eslint-disable-next-line no-console
     console.error('Speech synthesis error:', error);
     
     this.stop(); // Clean up state
@@ -439,7 +456,10 @@ export class SpeechSynthesizer {
           timestamp: Date.now()
         }
       }).catch(error => {
-        console.log('Could not notify error:', error);
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.log('Could not notify error:', error);
+        }
       });
     }
   }

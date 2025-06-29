@@ -1,6 +1,11 @@
 import { MessageType, Message, MessageResponse } from '@common/types/messages';
 // Temporary debug logging - replace devLog with console.log for debugging
-const debugLog = (...args: unknown[]) => console.log('[TTS-Debug]', ...args);
+const debugLog = (...args: unknown[]) => {
+  if (process.env.NODE_ENV === 'development') {
+    // eslint-disable-next-line no-console
+    console.log('[TTS-Debug]', ...args);
+  }
+};
 
 interface SelectionData {
   text: string;
@@ -512,7 +517,7 @@ class TTSManager {
     chrome.tabs.onUpdated.addListener(this.handleTabUpdate.bind(this));
     chrome.tabs.onRemoved.addListener(this.handleTabRemoved.bind(this));
     
-    console.log('TTS Manager initialized with tab navigation listeners');
+    debugLog('TTS Manager initialized with tab navigation listeners');
   }
 
   async handleMessage(request: Message, sender: chrome.runtime.MessageSender): Promise<Record<string, unknown>> {
@@ -582,7 +587,7 @@ class TTSManager {
       // Set up automatic stop timeout for very long text
       this.setStopTimeout();
       
-      console.log('TTS started for text:', text.substring(0, 50) + '...');
+      debugLog('TTS started for text:', text.substring(0, 50) + '...');
       
       return { success: true };
     } catch (error) {
@@ -596,7 +601,7 @@ class TTSManager {
     
     try {
       if (!this.isActive && !force) {
-        console.log('TTS is not active, ignoring stop request');
+        debugLog('TTS is not active, ignoring stop request');
         return { success: true };
       }
 
@@ -621,7 +626,7 @@ class TTSManager {
       // Broadcast stop state
       this.broadcastStateChange('stopped', { isPlaying: false });
       
-      console.log('TTS stopped, source:', source);
+      debugLog('TTS stopped, source:', source);
       
       return { success: true };
     } catch (error) {
@@ -660,7 +665,7 @@ class TTSManager {
   }
 
   private async forceStopTTS(): Promise<Record<string, unknown>> {
-    console.log('Force stopping TTS');
+    debugLog('Force stopping TTS');
     
     this.forceStopAttempts++;
     
@@ -702,7 +707,7 @@ class TTSManager {
     // Broadcast stopped state
     this.broadcastStateChange('stopped', { isPlaying: false });
     
-    console.log('TTS force cleanup completed');
+    debugLog('TTS force cleanup completed');
   }
 
   private setStopTimeout() {
@@ -863,7 +868,7 @@ try {
   contextMenuManager.setTTSManager(ttsManager);
   ttsManager.setContextMenuManager(contextMenuManager);
   
-  console.log('Background script loaded and ready');
+  debugLog('Background script loaded and ready');
   debugLog('Service worker started successfully');
 } catch (error) {
   console.error('Failed to initialize background script:', error);
@@ -892,7 +897,7 @@ chrome.runtime.onInstalled.addListener((details) => {
 // Message handler
 chrome.runtime.onMessage.addListener(
   (message: Message, sender, sendResponse: (response: MessageResponse) => void) => {
-    console.log('Background received message:', message, 'from:', sender);
+    debugLog('Background received message:', message, 'from:', sender);
     debugLog('Background received message:', message, 'from:', sender);
 
     // Try selection manager first (with safety check)
