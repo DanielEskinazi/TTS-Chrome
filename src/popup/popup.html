@@ -13,13 +13,28 @@
     </header>
     
     <main class="popup-content">
-      <section class="quick-actions">
-        <button id="toggleEnabled" class="btn btn-primary">
-          <span class="btn-icon">🔊</span>
-          <span class="btn-text">Enable TTS</span>
+      <section class="tts-status">
+        <div id="ttsStatus" class="status-card stopped">
+          <div class="status-text">TTS is not active</div>
+          <div id="currentText" class="current-text" style="display: none;">
+            Currently reading: <span id="textPreview"></span>
+          </div>
+        </div>
+      </section>
+      
+      <section class="tts-controls">
+        <button id="stopBtn" class="btn btn-stop" disabled>
+          <span class="btn-icon">⏹️</span>
+          <span class="btn-text">Stop Speaking</span>
         </button>
-        
-        <button id="speakPage" class="btn btn-secondary">
+        <button id="forceStopBtn" class="btn btn-force-stop" disabled>
+          <span class="btn-icon">🚫</span>
+          <span class="btn-text">Force Stop</span>
+        </button>
+      </section>
+      
+      <section class="quick-actions">
+        <button id="speakPage" class="btn btn-primary">
           <span class="btn-icon">📄</span>
           <span class="btn-text">Read Page</span>
         </button>
@@ -42,6 +57,16 @@
         <div class="setting-item">
           <label>Theme:</label>
           <span id="themeValue">Light</span>
+        </div>
+      </section>
+      
+      <section class="keyboard-shortcuts">
+        <h3>Keyboard Shortcuts:</h3>
+        <div class="shortcut-item">
+          <kbd>Escape</kbd> - Stop TTS (when playing)
+        </div>
+        <div class="shortcut-item">
+          <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> - Stop TTS
         </div>
       </section>
     </main>

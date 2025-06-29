@@ -175,3 +175,113 @@ body {
   color: #999;
   font-size: 12px;
 }
+
+/* TTS Status Section */
+.tts-status {
+  margin-bottom: 16px;
+}
+
+.status-card {
+  background: #fff;
+  padding: 16px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  transition: all 0.3s ease;
+}
+
+.status-card.playing {
+  background: #e8f5e8;
+  border-color: #4caf50;
+}
+
+.status-card.stopped {
+  background: #f5f5f5;
+  border-color: #ccc;
+}
+
+.status-card.error {
+  background: #ffebee;
+  border-color: #f44336;
+}
+
+.status-text {
+  font-weight: 600;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.current-text {
+  font-size: 12px;
+  color: #666;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.current-text #textPreview {
+  font-style: italic;
+}
+
+/* TTS Controls Section */
+.tts-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.btn-stop {
+  background: #f44336;
+  color: white;
+}
+
+.btn-stop:hover:not(:disabled) {
+  background: #d32f2f;
+}
+
+.btn-force-stop {
+  background: #ff9800;
+  color: white;
+}
+
+.btn-force-stop:hover:not(:disabled) {
+  background: #f57c00;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Keyboard Shortcuts Section */
+.keyboard-shortcuts {
+  background: #fff;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.keyboard-shortcuts h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.shortcut-item {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: #666;
+  padding: 4px 0;
+}
+
+.shortcut-item kbd {
+  background: #f0f0f0;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: monospace;
+  margin-right: 4px;
+}
