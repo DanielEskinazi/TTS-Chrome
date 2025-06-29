@@ -46,11 +46,20 @@ class TextSelectionHandler {
     // Listen for keyboard events for keyboard-based selection
     document.addEventListener('keyup', this.handleKeyUp.bind(this));
     
+    // Add keyboard event listeners for stop functionality
+    document.addEventListener('keydown', this.handleKeyDown.bind(this));
+    
     // Listen for messages from background script
     chrome.runtime.onMessage.addListener(this.handleMessage.bind(this));
     
+    // Setup keyboard shortcuts
+    this.setupKeyboardShortcuts();
+    
     devLog('TTS Text Selection Handler initialized');
-    console.log('🔊 TTS Text Selection Handler initialized - Extension is working!');
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.log('🔊 TTS Text Selection Handler initialized - Extension is working!');
+    }
   }
 
   private handleSelectionChange() {
@@ -94,6 +103,56 @@ class TextSelectionHandler {
     }
   }
 
+  private handleKeyDown(event: KeyboardEvent) {
+    // Handle Escape key to stop TTS
+    if (event.key === 'Escape') {
+      this.handleEscapeKey(event);
+    }
+    
+    // Handle Ctrl+Shift+S to stop TTS
+    if (event.ctrlKey && event.shiftKey && event.key === 'S') {
+      event.preventDefault();
+      this.handleStopShortcut();
+    }
+  }
+
+  private handleEscapeKey(event: KeyboardEvent) {
+    // Only handle escape if TTS is playing
+    if (this.isTTSPlaying()) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.stopTTS();
+    }
+  }
+
+  private handleStopShortcut() {
+    // Always handle the stop shortcut
+    this.stopTTS();
+  }
+
+  private setupKeyboardShortcuts() {
+    // Register keyboard shortcuts with the extension
+    chrome.runtime.sendMessage({
+      type: MessageType.CONTENT_READY, // Reuse existing message type for simplicity
+      payload: {
+        shortcuts: [
+          {
+            key: 'Escape',
+            description: 'Stop TTS playback',
+            condition: 'tts-playing'
+          },
+          {
+            key: 'Ctrl+Shift+S',
+            description: 'Stop TTS playback',
+            condition: 'always'
+          }
+        ]
+      }
+    }).catch(error => {
+      devLog('Could not register shortcuts:', error);
+    });
+  }
+
   private processSelection() {
     try {
       const selection = this.safeGetSelection();
@@ -115,7 +174,10 @@ class TextSelectionHandler {
       
       // Notify background script of new selection
       this.notifySelectionChange();
-      console.log('📝 Text selected:', this.selectionText.substring(0, 50) + '...');
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.log('📝 Text selected:', this.selectionText.substring(0, 50) + '...');
+      }
     }
   }
 
@@ -182,7 +244,7 @@ class TextSelectionHandler {
     });
   }
 
-  private handleMessage(request: Message, _sender: chrome.runtime.MessageSender, sendResponse: (response?: Record<string, unknown>) => void) {
+  public handleMessage(request: Message, _sender: chrome.runtime.MessageSender, sendResponse: (response?: Record<string, unknown>) => void): void {
     switch (request.type) {
       case MessageType.GET_SELECTION:
         sendResponse({
@@ -208,7 +270,12 @@ class TextSelectionHandler {
         break;
         
       case MessageType.STOP_SPEECH:
-        this.handleStopSpeech();
+        this.handleStopSpeech(request.payload || {});
+        sendResponse({ success: true });
+        break;
+        
+      case MessageType.FORCE_STOP:
+        this.handleForceStop();
         sendResponse({ success: true });
         break;
         
@@ -363,18 +430,104 @@ class TextSelectionHandler {
     }
   }
 
-  private handleStopSpeech(): void {
+  private handleStopSpeech(data: Record<string, unknown> = {}): void {
     try {
       if (!this.speechSynthesizer) {
         this.showUserFeedback('⚠️ Speech synthesizer not available', 'warning');
         return;
       }
+      
       this.speechSynthesizer.stop();
-      this.showUserFeedback('⏹️ Speech stopped', 'info');
+      
+      // Clear any local timers or intervals
+      this.clearTTSResources();
+      
+      // Show appropriate feedback based on stop source
+      const source = data.source as string || 'unknown';
+      const message = this.getStopMessage(source);
+      
+      this.showUserFeedback(message, 'info');
+      
+      devLog('Speech stopped from:', source);
+      
     } catch (error) {
-      console.error('Error stopping speech:', error);
+      console.error('Error in handleStopSpeech:', error);
       this.showUserFeedback('❌ Error stopping speech', 'error');
     }
+  }
+
+  private handleForceStop(): void {
+    // Force stop for emergency situations
+    try {
+      if (this.speechSynthesizer) {
+        this.speechSynthesizer.stop();
+      }
+      
+      // Force clear the speech synthesis queue
+      if (typeof speechSynthesis !== 'undefined') {
+        speechSynthesis.cancel();
+      }
+      
+      this.clearTTSResources();
+      this.showUserFeedback('Speech force stopped', 'warning');
+      
+    } catch (error) {
+      console.error('Error in force stop:', error);
+    }
+  }
+
+  private async stopTTS(): Promise<void> {
+    try {
+      // Send stop command to background script
+      await chrome.runtime.sendMessage({
+        type: MessageType.STOP_TTS,
+        payload: {
+          source: 'keyboard',
+          timestamp: Date.now()
+        }
+      });
+      
+      // Also stop local speech synthesis
+      if (this.speechSynthesizer) {
+        this.speechSynthesizer.stop();
+      }
+      
+      // Show feedback
+      this.showUserFeedback('Speech stopped', 'info');
+      
+    } catch (error) {
+      console.error('Error stopping TTS:', error);
+      this.showUserFeedback('Error stopping speech', 'error');
+    }
+  }
+
+  private isTTSPlaying(): boolean {
+    // Check if TTS is currently playing
+    if (this.speechSynthesizer) {
+      const state = this.speechSynthesizer.getPlaybackState();
+      return state.isPlaying && !state.isPaused;
+    }
+    return false;
+  }
+
+  private clearTTSResources(): void {
+    // Clear any timers, intervals, or other resources
+    // This would be implemented based on what resources need cleanup
+    devLog('TTS resources cleared');
+  }
+
+  private getStopMessage(source: string): string {
+    const messages: Record<string, string> = {
+      'keyboard': 'Speech stopped (keyboard)',
+      'context-menu': 'Speech stopped',
+      'popup': 'Speech stopped (popup)',
+      'navigation': 'Speech stopped (page changed)',
+      'new-request': 'Speech stopped (new request)',
+      'error': 'Speech stopped (error)',
+      'force': 'Speech force stopped'
+    };
+    
+    return messages[source] || 'Speech stopped';
   }
 
   private handlePauseSpeech(): void {
@@ -602,10 +755,12 @@ class ContentScriptController {
   private speakText(text: string) {
     if (!text) return;
 
-    chrome.runtime.sendMessage({
-      type: MessageType.SPEAK_TEXT,
-      payload: { text },
-    });
+    // Use the unified Web Speech API flow through TextSelectionHandler
+    // This ensures proper state tracking and stop functionality
+    this.textSelectionHandler.handleMessage({
+      type: MessageType.START_SPEECH,
+      payload: { text }
+    }, {} as chrome.runtime.MessageSender, () => {});
 
     // Visual feedback is now handled by the new TTS feedback system
   }

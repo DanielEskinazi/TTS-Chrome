@@ -3,6 +3,8 @@
  * Provides robust text-to-speech functionality with error handling and retry logic
  */
 
+import { MessageType } from './types/messages';
+
 export interface SpeechSettings {
   rate: number;
   pitch: number;
@@ -62,7 +64,10 @@ export class SpeechSynthesizer {
       this.setupSpeechEvents();
       
       this.isInitialized = true;
-      console.log('Speech Synthesizer initialized');
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.log('Speech Synthesizer initialized');
+      }
       
     } catch (error) {
       console.error('Failed to initialize Speech Synthesizer:', error);
@@ -109,7 +114,10 @@ export class SpeechSynthesizer {
     this.defaultVoice = this.selectDefaultVoice(this.availableVoices);
     this.settings.voice = this.defaultVoice;
     
-    console.log(`Loaded ${this.availableVoices.length} voices, default: ${this.defaultVoice?.name}`);
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.log(`Loaded ${this.availableVoices.length} voices, default: ${this.defaultVoice?.name}`);
+    }
   }
 
   private selectDefaultVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
@@ -288,6 +296,13 @@ export class SpeechSynthesizer {
       };
       
       utterance.onerror = (event: SpeechSynthesisErrorEvent) => {
+        // Check if this is an expected interruption
+        if (event.error === 'interrupted' || event.error === 'canceled') {
+          // This is expected when stopping TTS - don't treat as error
+          resolve(); // Resolve instead of reject for interruptions
+          return;
+        }
+        
         this.onError(event);
         reject(new Error(`Speech synthesis error: ${event.error}`));
       };
@@ -320,7 +335,20 @@ export class SpeechSynthesizer {
     try {
       await this.speakChunk(nextItem.text, nextItem.options);
     } catch (error) {
-      console.error('Error processing speech queue:', error);
+      // Check if this is an expected interruption error
+      const errorMessage = (error as Error).message || '';
+      const isInterrupted = errorMessage.includes('interrupted') || errorMessage.includes('canceled');
+      
+      if (isInterrupted) {
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.log('Speech queue processing interrupted (expected when stopping)');
+        }
+        return;
+      }
+      
+      // eslint-disable-next-line no-console
+    console.error('Error processing speech queue:', error);
       this.handleSpeechError(error as Error);
     }
   }
@@ -364,19 +392,38 @@ export class SpeechSynthesizer {
     // Send message to background script
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.sendMessage({
-        type: 'TTS_STATE_CHANGED',
-        data: {
+        type: MessageType.TTS_STATE_CHANGED,
+        payload: {
           state: state,
           playbackState: this.getPlaybackState(),
           timestamp: Date.now()
         }
       }).catch(error => {
-        console.log('Could not notify playback state:', error);
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.log('Could not notify playback state:', error);
+        }
       });
     }
   }
 
   private handleSpeechError(error: Error | SpeechSynthesisErrorEvent): void {
+    // Check if this is an expected "interrupted" error from stopping TTS
+    const errorMessage = 'error' in error ? error.error : error.message || 'unknown';
+    const isInterrupted = errorMessage.includes('interrupted') || errorMessage.includes('canceled');
+    
+    if (isInterrupted) {
+      // This is expected when TTS is stopped - don't log as an error
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.log('Speech synthesis interrupted (expected when stopping)');
+      }
+      this.stop(); // Clean up state
+      return;
+    }
+    
+    // Only log and handle unexpected errors
+    // eslint-disable-next-line no-console
     console.error('Speech synthesis error:', error);
     
     this.stop(); // Clean up state
@@ -402,14 +449,17 @@ export class SpeechSynthesizer {
   private notifyError(errorType: ErrorType, originalError: Error | SpeechSynthesisErrorEvent): void {
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.sendMessage({
-        type: 'TTS_ERROR',
-        data: {
+        type: MessageType.TTS_ERROR,
+        payload: {
           errorType: errorType,
           error: 'message' in originalError ? originalError.message : originalError.error || 'Unknown error',
           timestamp: Date.now()
         }
       }).catch(error => {
-        console.log('Could not notify error:', error);
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.log('Could not notify error:', error);
+        }
       });
     }
   }
