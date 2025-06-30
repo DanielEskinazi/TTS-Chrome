@@ -58,7 +58,8 @@ export class SpeechSynthesizer {
   };
 
   constructor() {
-    this.init();
+    // Don't auto-initialize in constructor to avoid blocking
+    // Call init() manually when ready
   }
 
   async init(): Promise<void> {

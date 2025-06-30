@@ -19,10 +19,16 @@ class TextSelectionHandler {
   private isSelectionActive: boolean = false;
   private selectionInfo: SelectionInfo | null = null;
   private speechSynthesizer: SpeechSynthesizer | null = null;
+  private lastShortcutTime = 0;
 
   constructor() {
     try {
       this.speechSynthesizer = new SpeechSynthesizer();
+      // Initialize asynchronously without blocking
+      this.speechSynthesizer.init().catch(error => {
+        console.warn('SpeechSynthesizer initialization failed:', error);
+        this.speechSynthesizer = null;
+      });
     } catch (error) {
       console.warn('SpeechSynthesizer not available:', error);
       // Gracefully handle cases where SpeechSynthesizer is not available (e.g., tests)
@@ -104,38 +110,42 @@ class TextSelectionHandler {
   }
 
   private handleKeyDown(event: KeyboardEvent) {
-    // Handle Space bar for pause/resume when TTS is active
-    if (event.key === ' ' && this.isTTSActive()) {
-      if (!this.isInputElement(event.target as Element)) {
+    // Handle Ctrl+Shift+Space for pause/resume and stop
+    if (event.ctrlKey && event.shiftKey && event.key === ' ') {
+      const now = Date.now();
+      
+      // Debounce: Ignore if called within 300ms of last call
+      if (now - this.lastShortcutTime < 300) {
         event.preventDefault();
-        this.togglePauseTTS();
+        return;
       }
-    }
-    
-    // Handle Escape key to stop TTS
-    if (event.key === 'Escape') {
-      this.handleEscapeKey(event);
-    }
-    
-    // Handle Ctrl+Shift+S to stop TTS
-    if (event.ctrlKey && event.shiftKey && event.key === 'S') {
+      
+      this.lastShortcutTime = now;
+      
+      // Always allow TTS shortcuts - they're more important than input conflicts
       event.preventDefault();
-      this.handleStopShortcut();
+      this.handleTTSShortcut();
     }
   }
 
-  private handleEscapeKey(event: KeyboardEvent) {
-    // Only handle escape if TTS is playing
-    if (this.isTTSPlaying()) {
-      event.preventDefault();
-      event.stopPropagation();
-      this.stopTTS();
+  private handleTTSShortcut() {
+    // Handle Ctrl+Shift+Space: pause/resume toggle
+    const isPlaying = this.isTTSPlaying();
+    const isPaused = this.isTTSPaused();
+    
+    if (isPlaying || isPaused) {
+      // If TTS is active (playing or paused), toggle pause/resume
+      this.togglePauseTTS();
     }
   }
 
-  private handleStopShortcut() {
-    // Always handle the stop shortcut
-    this.stopTTS();
+  private isTTSPaused(): boolean {
+    // Check if TTS is currently paused
+    if (this.speechSynthesizer) {
+      const state = this.speechSynthesizer.getPlaybackState();
+      return state.isPlaying && state.isPaused;
+    }
+    return false;
   }
 
   private setupKeyboardShortcuts() {
@@ -145,19 +155,9 @@ class TextSelectionHandler {
       payload: {
         shortcuts: [
           {
-            key: 'Space',
-            description: 'Pause/Resume TTS playback',
+            key: 'Ctrl+Shift+Space',
+            description: 'Pause/Resume TTS (when playing) or Stop TTS (when paused)',
             condition: 'tts-active'
-          },
-          {
-            key: 'Escape',
-            description: 'Stop TTS playback',
-            condition: 'tts-playing'
-          },
-          {
-            key: 'Ctrl+Shift+S',
-            description: 'Stop TTS playback',
-            condition: 'always'
           }
         ]
       }
@@ -182,20 +182,11 @@ class TextSelectionHandler {
 
   private async togglePauseTTS(): Promise<void> {
     try {
-      // Toggle pause locally
+      // Toggle pause locally only (don't notify background to avoid double toggle)
       if (this.speechSynthesizer) {
         const toggled = this.speechSynthesizer.togglePause();
         
         if (toggled) {
-          // Notify background script
-          await chrome.runtime.sendMessage({
-            type: MessageType.TOGGLE_PAUSE_TTS,
-            payload: {
-              source: 'keyboard',
-              timestamp: Date.now()
-            }
-          });
-          
           // Show feedback
           const state = this.speechSynthesizer.getPlaybackState();
           const message = state.isPaused ? '⏸️ Speech paused' : '▶️ Speech resumed';
