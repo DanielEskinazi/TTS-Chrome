@@ -12,7 +12,7 @@ module.exports = (env, argv) => {
     entry: {
       background: './src/background/index.ts',
       content: './src/content/index.ts',
-      popup: './src/popup/index.tsx',
+      popup: './src/popup/index.ts',
       options: './src/options/index.ts',
     },
     

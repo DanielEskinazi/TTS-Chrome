@@ -2,12 +2,81 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TTS Extension</title>
   <link rel="stylesheet" href="popup.css">
 </head>
-<body class="bg-gray-100">
-  <div id="root"></div>
+<body>
+  <div class="popup-container">
+    <header class="popup-header">
+      <h1>Text to Speech</h1>
+      <div class="status-indicator" id="status"></div>
+    </header>
+    
+    <main class="popup-content">
+      <section class="tts-status">
+        <div id="ttsStatus" class="status-card stopped">
+          <div class="status-text">TTS is not active</div>
+          <div id="currentText" class="current-text" style="display: none;">
+            Currently reading: <span id="textPreview"></span>
+          </div>
+        </div>
+      </section>
+      
+      <section class="tts-controls">
+        <button id="stopBtn" class="btn btn-stop" disabled>
+          <span class="btn-icon">⏹️</span>
+          <span class="btn-text">Stop Speaking</span>
+        </button>
+        <button id="forceStopBtn" class="btn btn-force-stop" disabled>
+          <span class="btn-icon">🚫</span>
+          <span class="btn-text">Force Stop</span>
+        </button>
+      </section>
+      
+      <section class="quick-actions">
+        <button id="speakPage" class="btn btn-primary">
+          <span class="btn-icon">📄</span>
+          <span class="btn-text">Read Page</span>
+        </button>
+      </section>
+      
+      <section class="test-area">
+        <textarea 
+          id="testText" 
+          placeholder="Enter text to test TTS..."
+          rows="3"
+        ></textarea>
+        <button id="testSpeak" class="btn btn-small">Test Speech</button>
+      </section>
+      
+      <section class="settings-preview">
+        <div class="setting-item">
+          <label>Font Size:</label>
+          <span id="fontSizeValue">16px</span>
+        </div>
+        <div class="setting-item">
+          <label>Theme:</label>
+          <span id="themeValue">Light</span>
+        </div>
+      </section>
+      
+      <section class="keyboard-shortcuts">
+        <h3>Keyboard Shortcuts:</h3>
+        <div class="shortcut-item">
+          <kbd>Escape</kbd> - Stop TTS (when playing)
+        </div>
+        <div class="shortcut-item">
+          <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> - Stop TTS
+        </div>
+      </section>
+    </main>
+    
+    <footer class="popup-footer">
+      <a href="#" id="openOptions">Settings</a>
+      <span class="version">v0.1.0</span>
+    </footer>
+  </div>
+  
   <script src="popup.js"></script>
 </body>
 </html>

@@ -6,7 +6,15 @@ import { PopupFooter } from './layout/PopupFooter';
 
 const PopupInner: React.FC = () => {
   return (
-    <div className="w-96 h-[600px] bg-white flex flex-col shadow-lg">
+    <div 
+      className="bg-white flex flex-col shadow-lg"
+      style={{
+        width: '400px',
+        height: '600px',
+        minWidth: '400px',
+        minHeight: '600px'
+      }}
+    >
       <PopupHeader />
       <PopupContent />
       <PopupFooter />
