@@ -2,8 +2,8 @@
 
 ## Project Overview
 - **Total Features**: 26
-- **Completed Features**: 7
-- **Progress**: 26.9% (7/26)
+- **Completed Features**: 8
+- **Progress**: 30.8% (8/26)
 - **Current Phase**: Phase 2 - Basic TTS
 
 ## Phase Progress
@@ -13,12 +13,12 @@
 - [x] **Feature 1.2**: Development Environment ✅ *(Completed: 2025-06-25, Commit: 9a52fc8)*
 - [x] **Feature 1.3**: Minimal Extension ✅ *(Completed: 2025-06-26, Commit: e788fae)*
 
-### Phase 2: Basic TTS (57% Complete - 4/7) 🟡
+### Phase 2: Basic TTS (71% Complete - 5/7) 🟡
 - [x] **Feature 2.1**: Simple Text Selection ✅ *(Completed: 2025-06-26, Commit: 7229b0a)*
 - [x] **Feature 2.2**: Minimal Context Menu ✅ *(Completed: 2025-06-26, Commit: c70f1d4)*
 - [x] **Feature 2.3**: Basic Speech Output ✅ *(Completed: 2025-06-27, Commit: a5e7691)*
 - [x] **Feature 2.4**: Stop Functionality ✅ *(Completed: 2025-06-27, Commit: 85e89e6)*
-- [ ] **Feature 2.5**: Pause/Resume Functionality 🚧
+- [x] **Feature 2.5**: Pause/Resume Functionality ✅ *(Completed: 2025-01-30, Commit: 82961de)*
 - [ ] **Feature 2.6**: Basic Voice Selection 📋
 - [ ] **Feature 2.7**: Speed Control 📋
 
@@ -50,6 +50,25 @@
 - [ ] **Feature 7.3**: Domain Intelligence
 
 ## Recently Completed
+
+### Feature 2.5: Pause/Resume Functionality ✅
+- **Completed**: January 30, 2025
+- **Commit**: 82961de
+- **Assignee**: Claude
+- **Duration**: Comprehensive pause/resume implementation
+- **Git Tag**: `feature-2.5-completed`
+
+**Accomplishments:**
+- ✅ Enhanced SpeechSynthesizer with pause/resume methods and position tracking (storePausePosition, pausePosition state)
+- ✅ Added pause/resume context menu item with dynamic title switching between "Pause Speaking" and "Resume Speaking"
+- ✅ Implemented Space bar keyboard shortcut for pause/resume when TTS is active (with input element detection)
+- ✅ Updated popup UI with play/pause button showing appropriate icons (▶️/⏸️) and text (Play/Pause/Resume)
+- ✅ Added TOGGLE_PAUSE_TTS and TOGGLE_PAUSE_SPEECH message types for cross-component communication
+- ✅ Enhanced TTSManager with pauseTTS, resumeTTS, and togglePause methods with proper state tracking
+- ✅ Added visual feedback for paused state in popup (orange theme with #ff9800 color scheme)
+- ✅ Updated keyboard shortcuts display to include Space bar for pause/resume functionality
+- ✅ Implemented pause state persistence during tab switches and proper state synchronization
+- ✅ Added comprehensive pause/resume feedback messages (⏸️ Speech paused, ▶️ Speech resumed)
 
 ### Feature 2.4: Stop Functionality ✅
 - **Completed**: June 27, 2025
