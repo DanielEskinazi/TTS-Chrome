@@ -17,6 +17,14 @@ export interface PlaybackState {
   isPaused: boolean;
   hasQueue: boolean;
   currentText: string | null;
+  pausePosition: PausePosition | null;
+  canResume: boolean;
+}
+
+export interface PausePosition {
+  chunkIndex: number;
+  queueLength: number;
+  timestamp: number;
 }
 
 export interface VoiceInfo {
@@ -39,6 +47,9 @@ export class SpeechSynthesizer {
   private speechQueue: Array<{ text: string; options: Partial<SpeechSettings> }> = [];
   private availableVoices: SpeechSynthesisVoice[] = [];
   private defaultVoice: SpeechSynthesisVoice | null = null;
+  private pausePosition: PausePosition | null = null;
+  private pausedText: string | null = null;
+  private currentChunkIndex = 0;
   private settings: SpeechSettings = {
     rate: 1.0,
     pitch: 1.0,
@@ -152,12 +163,12 @@ export class SpeechSynthesizer {
 
     this.onPause = () => {
       this.isPaused = true;
-      this.notifyPlaybackState('paused');
+      // Don't notify here since pause() method already handles it
     };
 
     this.onResume = () => {
       this.isPaused = false;
-      this.notifyPlaybackState('resumed');
+      // Don't notify here since resume() method already handles it
     };
   }
 
@@ -321,6 +332,7 @@ export class SpeechSynthesizer {
 
   private async speakChunks(chunks: string[], options: Partial<SpeechSettings> = {}): Promise<void> {
     this.speechQueue = chunks.map(chunk => ({ text: chunk, options }));
+    this.currentChunkIndex = 0;
     return this.processQueue();
   }
 
@@ -334,6 +346,7 @@ export class SpeechSynthesizer {
     
     try {
       await this.speakChunk(nextItem.text, nextItem.options);
+      this.currentChunkIndex++;
     } catch (error) {
       // Check if this is an expected interruption error
       const errorMessage = (error as Error).message || '';
@@ -354,18 +367,99 @@ export class SpeechSynthesizer {
   }
 
   pause(): boolean {
-    if (this.isPlaying && !this.isPaused) {
-      speechSynthesis.pause();
-      return true;
+    // eslint-disable-next-line no-console
+    console.log('[TTS-Debug] Pause called - isPlaying:', this.isPlaying, 'isPaused:', this.isPaused, 'speechSynthesis.speaking:', speechSynthesis.speaking);
+    
+    // Check if speech synthesis is actually speaking
+    if (!speechSynthesis.speaking) {
+      // eslint-disable-next-line no-console
+      console.log('[TTS-Debug] speechSynthesis is not speaking, cannot pause');
+      return false;
     }
+    
+    if (this.isPlaying && !this.isPaused) {
+      try {
+        // Store current position for resume
+        this.storePausePosition();
+        
+        // Pause speech synthesis
+        speechSynthesis.pause();
+        
+        this.isPaused = true;
+        this.notifyPlaybackState('paused');
+        
+        // eslint-disable-next-line no-console
+        console.log('[TTS-Debug] Speech paused successfully, speechSynthesis.paused:', speechSynthesis.paused);
+        
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.log('Speech paused at position:', this.pausePosition);
+        }
+        return true;
+      } catch (error) {
+        console.error('Error pausing speech:', error);
+        return false;
+      }
+    }
+    // eslint-disable-next-line no-console
+    console.log('[TTS-Debug] Pause conditions not met - returning false');
     return false;
   }
 
   resume(): boolean {
-    if (this.isPaused) {
-      speechSynthesis.resume();
-      return true;
+    // eslint-disable-next-line no-console
+    console.log('[TTS-Debug] Resume called - isPaused:', this.isPaused, 'speechSynthesis.paused:', speechSynthesis.paused);
+    
+    if (this.isPaused && speechSynthesis.paused) {
+      try {
+        // Resume speech synthesis
+        speechSynthesis.resume();
+        
+        this.isPaused = false;
+        this.notifyPlaybackState('resumed');
+        
+        // eslint-disable-next-line no-console
+        console.log('[TTS-Debug] Speech resumed successfully');
+        
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.log('Speech resumed');
+        }
+        return true;
+      } catch (error) {
+        console.error('Error resuming speech:', error);
+        return false;
+      }
     }
+    // eslint-disable-next-line no-console
+    console.log('[TTS-Debug] Resume conditions not met - returning false');
+    return false;
+  }
+
+  private storePausePosition(): void {
+    if (this.currentUtterance) {
+      // Store current text and position
+      this.pausedText = this.currentUtterance.text;
+      this.pausePosition = {
+        chunkIndex: this.currentChunkIndex,
+        queueLength: this.speechQueue.length,
+        timestamp: Date.now()
+      };
+    }
+  }
+
+  togglePause(): boolean {
+    // eslint-disable-next-line no-console
+    console.log('[TTS-Debug] TogglePause called - isPaused:', this.isPaused, 'isPlaying:', this.isPlaying);
+    
+    if (this.isPaused) {
+      return this.resume();
+    } else if (this.isPlaying) {
+      return this.pause();
+    }
+    
+    // eslint-disable-next-line no-console
+    console.log('[TTS-Debug] TogglePause - neither paused nor playing, returning false');
     return false;
   }
 
@@ -375,6 +469,9 @@ export class SpeechSynthesizer {
     this.currentUtterance = null;
     this.isPlaying = false;
     this.isPaused = false;
+    this.pausePosition = null;
+    this.pausedText = null;
+    this.currentChunkIndex = 0;
     this.notifyPlaybackState('stopped');
   }
 
@@ -384,7 +481,9 @@ export class SpeechSynthesizer {
       isPlaying: this.isPlaying,
       isPaused: this.isPaused,
       hasQueue: this.speechQueue.length > 0,
-      currentText: this.currentUtterance?.text || null
+      currentText: this.currentUtterance?.text || null,
+      pausePosition: this.pausePosition,
+      canResume: this.isPaused && this.pausedText !== null
     };
   }
 
