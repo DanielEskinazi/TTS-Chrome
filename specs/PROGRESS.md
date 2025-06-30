@@ -2,9 +2,9 @@
 
 ## Project Overview
 - **Total Features**: 23
-- **Completed Features**: 7
-- **Progress**: 30.4% (7/23)
-- **Current Phase**: Phase 2 - Basic TTS
+- **Completed Features**: 9
+- **Progress**: 39.1% (9/23)
+- **Current Phase**: Phase 3 - Popup UI
 
 ## Phase Progress
 
@@ -19,9 +19,9 @@
 - [x] **Feature 2.3**: Basic Speech Output ✅ *(Completed: 2025-06-27, Commit: a5e7691)*
 - [x] **Feature 2.4**: Stop Functionality ✅ *(Completed: 2025-06-27, Commit: 85e89e6)*
 
-### Phase 3: Popup UI (0% Complete - 0/4)
-- [ ] **Feature 3.1**: Basic Popup Structure
-- [ ] **Feature 3.2**: Voice Selection
+### Phase 3: Popup UI (50% Complete - 2/4)
+- [x] **Feature 3.1**: Basic Popup Structure ✅ *(Completed: 2025-06-30, Vanilla JS implementation)*
+- [x] **Feature 3.2**: Voice Selection ✅ *(Completed: 2025-06-30)*
 - [ ] **Feature 3.3**: Speed Control
 - [ ] **Feature 3.4**: Volume Control
 
@@ -146,12 +146,12 @@
 |-------|----------|-----------|----------|---------|
 | Phase 1 | 3 | 3 | 100% | ✅ Complete |
 | Phase 2 | 4 | 4 | 100% | ✅ Complete |
-| Phase 3 | 4 | 0 | 0% | ⚪ Not Started |
+| Phase 3 | 4 | 2 | 50% | 🟡 In Progress |
 | Phase 4 | 4 | 0 | 0% | ⚪ Not Started |
 | Phase 5 | 3 | 0 | 0% | ⚪ Not Started |
 | Phase 6 | 3 | 0 | 0% | ⚪ Not Started |
 | Phase 7 | 3 | 0 | 0% | ⚪ Not Started |
-| **Total** | **23** | **7** | **30.4%** | **🟡 In Progress** |
+| **Total** | **23** | **9** | **39.1%** | **🟡 In Progress** |
 
 ## Git Tags
 

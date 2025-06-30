@@ -23,12 +23,26 @@ class TextSelectionHandler {
   constructor() {
     try {
       this.speechSynthesizer = new SpeechSynthesizer();
+      // Load selected voice from storage
+      this.loadSelectedVoice();
     } catch (error) {
       console.warn('SpeechSynthesizer not available:', error);
       // Gracefully handle cases where SpeechSynthesizer is not available (e.g., tests)
       this.speechSynthesizer = null;
     }
     this.init();
+  }
+
+  private async loadSelectedVoice() {
+    try {
+      const result = await chrome.storage.sync.get('selectedVoice');
+      if (result.selectedVoice && this.speechSynthesizer) {
+        await this.speechSynthesizer.setVoice(result.selectedVoice);
+        devLog('Loaded selected voice:', result.selectedVoice);
+      }
+    } catch (error) {
+      devLog('Error loading selected voice:', error);
+    }
   }
 
   private init() {
@@ -289,6 +303,11 @@ class TextSelectionHandler {
         sendResponse({ success: true });
         break;
         
+      case MessageType.VOICE_CHANGED:
+        this.handleVoiceChanged(request.payload || {});
+        sendResponse({ success: true });
+        break;
+        
       default:
         // Don't handle other message types here
         break;
@@ -407,6 +426,7 @@ class TextSelectionHandler {
   private async handleStartSpeech(data: Record<string, unknown>): Promise<void> {
     try {
       const text = data.text as string;
+      const voice = data.voice as string | undefined;
       
       if (!text || typeof text !== 'string') {
         throw new Error('No text provided for speech synthesis');
@@ -418,6 +438,11 @@ class TextSelectionHandler {
 
       if (!this.speechSynthesizer.isReady()) {
         throw new Error('Speech synthesizer not ready');
+      }
+
+      // Set voice if provided
+      if (voice && typeof voice === 'string') {
+        await this.speechSynthesizer.setVoice(voice);
       }
 
       await this.speechSynthesizer.speak(text);
@@ -561,6 +586,23 @@ class TextSelectionHandler {
     } catch (error) {
       console.error('Error resuming speech:', error);
       this.showUserFeedback('❌ Error resuming speech', 'error');
+    }
+  }
+
+  private async handleVoiceChanged(data: Record<string, unknown>): Promise<void> {
+    try {
+      const voice = data.voice as string;
+      
+      if (!this.speechSynthesizer) {
+        return;
+      }
+      
+      if (voice && typeof voice === 'string') {
+        await this.speechSynthesizer.setVoice(voice);
+        devLog('Voice changed to:', voice);
+      }
+    } catch (error) {
+      console.error('Error changing voice:', error);
     }
   }
 

@@ -27,6 +27,9 @@ export enum MessageType {
   PAUSE_SPEECH = 'PAUSE_SPEECH',
   RESUME_SPEECH = 'RESUME_SPEECH',
   
+  // Voice management
+  VOICE_CHANGED = 'VOICE_CHANGED',
+  
   // Content script
   CONTENT_READY = 'CONTENT_READY',
   HIGHLIGHT_TEXT = 'HIGHLIGHT_TEXT',

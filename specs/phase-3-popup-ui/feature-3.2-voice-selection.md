@@ -1,5 +1,7 @@
 # Feature 3.2: Voice Selection
 
+**Status: ✅ COMPLETED** | **Completed Date: 2025-06-30** | **Assignee: AI Assistant** | **Git Tag: feature-3.2-completed**
+
 ## Feature Overview and Objectives
 
 ### Primary Objective
