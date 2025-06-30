@@ -755,19 +755,24 @@ class TTSManager {
   async togglePause(options: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
     const { source = 'manual' } = options;
     
+    debugLog('[TTS-Debug] Background togglePause called - isActive:', this.isActive, 'currentTabId:', this.currentTabId, 'source:', source);
+    
     if (this.isActive && this.currentTabId) {
       try {
+        debugLog('[TTS-Debug] Sending TOGGLE_PAUSE_SPEECH to content script');
         const response = await chrome.tabs.sendMessage(this.currentTabId, {
           type: MessageType.TOGGLE_PAUSE_SPEECH,
           payload: { source: source }
         });
         
+        debugLog('[TTS-Debug] Received response from content script:', response);
         return response;
       } catch (error) {
         console.error('Error toggling pause:', error);
         throw error;
       }
     }
+    debugLog('[TTS-Debug] TTS not active or no tab ID, returning false');
     return { isPaused: false };
   }
 

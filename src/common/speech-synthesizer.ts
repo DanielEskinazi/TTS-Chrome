@@ -367,6 +367,14 @@ export class SpeechSynthesizer {
   }
 
   pause(): boolean {
+    console.log('[TTS-Debug] Pause called - isPlaying:', this.isPlaying, 'isPaused:', this.isPaused, 'speechSynthesis.speaking:', speechSynthesis.speaking);
+    
+    // Check if speech synthesis is actually speaking
+    if (!speechSynthesis.speaking) {
+      console.log('[TTS-Debug] speechSynthesis is not speaking, cannot pause');
+      return false;
+    }
+    
     if (this.isPlaying && !this.isPaused) {
       try {
         // Store current position for resume
@@ -378,6 +386,8 @@ export class SpeechSynthesizer {
         this.isPaused = true;
         this.notifyPlaybackState('paused');
         
+        console.log('[TTS-Debug] Speech paused successfully, speechSynthesis.paused:', speechSynthesis.paused);
+        
         if (process.env.NODE_ENV === 'development') {
           // eslint-disable-next-line no-console
           console.log('Speech paused at position:', this.pausePosition);
@@ -388,10 +398,13 @@ export class SpeechSynthesizer {
         return false;
       }
     }
+    console.log('[TTS-Debug] Pause conditions not met - returning false');
     return false;
   }
 
   resume(): boolean {
+    console.log('[TTS-Debug] Resume called - isPaused:', this.isPaused, 'speechSynthesis.paused:', speechSynthesis.paused);
+    
     if (this.isPaused && speechSynthesis.paused) {
       try {
         // Resume speech synthesis
@@ -399,6 +412,8 @@ export class SpeechSynthesizer {
         
         this.isPaused = false;
         this.notifyPlaybackState('resumed');
+        
+        console.log('[TTS-Debug] Speech resumed successfully');
         
         if (process.env.NODE_ENV === 'development') {
           // eslint-disable-next-line no-console
@@ -410,6 +425,7 @@ export class SpeechSynthesizer {
         return false;
       }
     }
+    console.log('[TTS-Debug] Resume conditions not met - returning false');
     return false;
   }
 
@@ -426,11 +442,15 @@ export class SpeechSynthesizer {
   }
 
   togglePause(): boolean {
+    console.log('[TTS-Debug] TogglePause called - isPaused:', this.isPaused, 'isPlaying:', this.isPlaying);
+    
     if (this.isPaused) {
       return this.resume();
     } else if (this.isPlaying) {
       return this.pause();
     }
+    
+    console.log('[TTS-Debug] TogglePause - neither paused nor playing, returning false');
     return false;
   }
 
