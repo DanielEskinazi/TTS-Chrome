@@ -1,9 +1,9 @@
 # TTS Chrome Extension - Development Progress
 
 ## Project Overview
-- **Total Features**: 23
+- **Total Features**: 26
 - **Completed Features**: 7
-- **Progress**: 30.4% (7/23)
+- **Progress**: 26.9% (7/26)
 - **Current Phase**: Phase 2 - Basic TTS
 
 ## Phase Progress
@@ -13,11 +13,14 @@
 - [x] **Feature 1.2**: Development Environment ✅ *(Completed: 2025-06-25, Commit: 9a52fc8)*
 - [x] **Feature 1.3**: Minimal Extension ✅ *(Completed: 2025-06-26, Commit: e788fae)*
 
-### Phase 2: Basic TTS (100% Complete - 4/4) ✅
+### Phase 2: Basic TTS (57% Complete - 4/7) 🟡
 - [x] **Feature 2.1**: Simple Text Selection ✅ *(Completed: 2025-06-26, Commit: 7229b0a)*
 - [x] **Feature 2.2**: Minimal Context Menu ✅ *(Completed: 2025-06-26, Commit: c70f1d4)*
 - [x] **Feature 2.3**: Basic Speech Output ✅ *(Completed: 2025-06-27, Commit: a5e7691)*
 - [x] **Feature 2.4**: Stop Functionality ✅ *(Completed: 2025-06-27, Commit: 85e89e6)*
+- [ ] **Feature 2.5**: Pause/Resume Functionality 🚧
+- [ ] **Feature 2.6**: Basic Voice Selection 📋
+- [ ] **Feature 2.7**: Speed Control 📋
 
 ### Phase 3: Popup UI (0% Complete - 0/4)
 - [ ] **Feature 3.1**: Basic Popup Structure
@@ -145,13 +148,13 @@
 | Phase | Features | Completed | Progress | Status |
 |-------|----------|-----------|----------|---------|
 | Phase 1 | 3 | 3 | 100% | ✅ Complete |
-| Phase 2 | 4 | 4 | 100% | ✅ Complete |
+| Phase 2 | 7 | 4 | 57% | 🟡 In Progress |
 | Phase 3 | 4 | 0 | 0% | ⚪ Not Started |
 | Phase 4 | 4 | 0 | 0% | ⚪ Not Started |
 | Phase 5 | 3 | 0 | 0% | ⚪ Not Started |
 | Phase 6 | 3 | 0 | 0% | ⚪ Not Started |
 | Phase 7 | 3 | 0 | 0% | ⚪ Not Started |
-| **Total** | **23** | **7** | **30.4%** | **🟡 In Progress** |
+| **Total** | **26** | **7** | **26.9%** | **🟡 In Progress** |
 
 ## Git Tags
 
@@ -166,7 +169,6 @@
 
 ### Phase Completion Tags
 - `phase-1-completed` - Phase 1: Setup Complete (e788fae)
-- `phase-2-completed` - Phase 2: Basic TTS Complete (85e89e6)
 
 ### Milestone Tags
 *(None yet - created at major project milestones)*
@@ -214,15 +216,23 @@
 
 ## Next Steps
 
-1. **Feature 2.2**: Minimal Context Menu
-   - Create context menu integration
-   - Add speak selected text functionality
-   - Test right-click interaction patterns
+1. **Feature 2.5**: Pause/Resume Functionality
+   - Implement pause/resume controls for TTS playback
+   - Add keyboard shortcuts (Space bar) for pause/resume
+   - Create visual indicators for paused state
+   - Ensure state synchronization across components
 
-2. **Feature 2.3**: Basic Speech Output
-   - Implement Chrome TTS API integration
-   - Add voice selection and playback controls
-   - Test speech synthesis functionality
+2. **Feature 2.6**: Basic Voice Selection
+   - Enumerate available system voices
+   - Create voice selection dropdown in popup
+   - Add "Read with..." context menu submenu
+   - Implement voice persistence and favorites
+
+3. **Feature 2.7**: Speed Control
+   - Add speed slider (0.5x to 3.0x) in popup
+   - Implement keyboard shortcuts for speed adjustment
+   - Create speed preset buttons
+   - Add reading time estimation
 
 ## Tracking Notes
 
@@ -232,5 +242,5 @@
 - **Commit References**: All completions link to specific commits for traceability
 
 ---
-*Last Updated: June 27, 2025*
-*Next Review: After Feature 2.4 completion*
+*Last Updated: June 30, 2025*
+*Next Review: After Feature 2.7 completion*
