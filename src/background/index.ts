@@ -424,11 +424,24 @@ class ContextMenuManager {
   }
 
   private async startTTS(text: string, tab: chrome.tabs.Tab, voice?: VoiceInfo): Promise<void> {
-    // Send message to start TTS using Web Speech API in content script
-    return chrome.tabs.sendMessage(tab.id!, {
-      type: MessageType.START_SPEECH,
-      payload: { text: text, voice: voice || this.voiceManager.getSelectedVoice() }
-    });
+    // Route through TTSManager to ensure proper state management
+    if (!this.ttsManager) {
+      throw new Error('TTS Manager not available');
+    }
+    
+    const startTTSData = {
+      text: text,
+      voice: voice || this.voiceManager.getSelectedVoice(),
+      tabId: tab.id
+    };
+    
+    debugLog('[Context-Menu-Debug] Starting TTS via TTSManager:', startTTSData);
+    
+    // Use TTSManager to handle TTS with proper state management
+    await this.ttsManager.handleMessage({
+      type: MessageType.START_TTS,
+      payload: startTTSData
+    }, { tab: tab } as chrome.runtime.MessageSender);
   }
 
   private showTTSFeedback(tab: chrome.tabs.Tab, status: string) {
