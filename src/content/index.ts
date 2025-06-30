@@ -344,10 +344,11 @@ class TextSelectionHandler {
         sendResponse({ success: true });
         break;
         
-      case MessageType.TOGGLE_PAUSE_SPEECH:
+      case MessageType.TOGGLE_PAUSE_SPEECH: {
         const pauseState = this.handleTogglePauseSpeech();
         sendResponse(pauseState);
         break;
+      }
         
       default:
         // Don't handle other message types here
@@ -643,6 +644,7 @@ class TextSelectionHandler {
         return { success: false, isPaused: false, error: 'Speech synthesizer not available' };
       }
       
+      // eslint-disable-next-line no-console
       console.log('[TTS-Debug] Toggle pause called, current state:', this.speechSynthesizer.getPlaybackState());
       
       const toggled = this.speechSynthesizer.togglePause();
@@ -651,10 +653,12 @@ class TextSelectionHandler {
         const state = this.speechSynthesizer.getPlaybackState();
         const message = state.isPaused ? '⏸️ Speech paused' : '▶️ Speech resumed';
         this.showUserFeedback(message, 'info');
+        // eslint-disable-next-line no-console
         console.log('[TTS-Debug] Toggle successful, new state:', state);
         return { success: true, isPaused: state.isPaused };
       } else {
         this.showUserFeedback('⚠️ Speech not active', 'warning');
+        // eslint-disable-next-line no-console
         console.log('[TTS-Debug] Toggle failed - speech not active');
         return { success: false, isPaused: false, error: 'Speech not active' };
       }

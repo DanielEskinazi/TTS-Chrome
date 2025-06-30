@@ -367,10 +367,12 @@ export class SpeechSynthesizer {
   }
 
   pause(): boolean {
+    // eslint-disable-next-line no-console
     console.log('[TTS-Debug] Pause called - isPlaying:', this.isPlaying, 'isPaused:', this.isPaused, 'speechSynthesis.speaking:', speechSynthesis.speaking);
     
     // Check if speech synthesis is actually speaking
     if (!speechSynthesis.speaking) {
+      // eslint-disable-next-line no-console
       console.log('[TTS-Debug] speechSynthesis is not speaking, cannot pause');
       return false;
     }
@@ -386,6 +388,7 @@ export class SpeechSynthesizer {
         this.isPaused = true;
         this.notifyPlaybackState('paused');
         
+        // eslint-disable-next-line no-console
         console.log('[TTS-Debug] Speech paused successfully, speechSynthesis.paused:', speechSynthesis.paused);
         
         if (process.env.NODE_ENV === 'development') {
@@ -398,11 +401,13 @@ export class SpeechSynthesizer {
         return false;
       }
     }
+    // eslint-disable-next-line no-console
     console.log('[TTS-Debug] Pause conditions not met - returning false');
     return false;
   }
 
   resume(): boolean {
+    // eslint-disable-next-line no-console
     console.log('[TTS-Debug] Resume called - isPaused:', this.isPaused, 'speechSynthesis.paused:', speechSynthesis.paused);
     
     if (this.isPaused && speechSynthesis.paused) {
@@ -413,6 +418,7 @@ export class SpeechSynthesizer {
         this.isPaused = false;
         this.notifyPlaybackState('resumed');
         
+        // eslint-disable-next-line no-console
         console.log('[TTS-Debug] Speech resumed successfully');
         
         if (process.env.NODE_ENV === 'development') {
@@ -425,6 +431,7 @@ export class SpeechSynthesizer {
         return false;
       }
     }
+    // eslint-disable-next-line no-console
     console.log('[TTS-Debug] Resume conditions not met - returning false');
     return false;
   }
@@ -442,6 +449,7 @@ export class SpeechSynthesizer {
   }
 
   togglePause(): boolean {
+    // eslint-disable-next-line no-console
     console.log('[TTS-Debug] TogglePause called - isPaused:', this.isPaused, 'isPlaying:', this.isPlaying);
     
     if (this.isPaused) {
@@ -450,6 +458,7 @@ export class SpeechSynthesizer {
       return this.pause();
     }
     
+    // eslint-disable-next-line no-console
     console.log('[TTS-Debug] TogglePause - neither paused nor playing, returning false');
     return false;
   }
