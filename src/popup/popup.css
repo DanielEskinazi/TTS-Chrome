@@ -253,6 +253,67 @@ body {
   box-shadow: none !important;
 }
 
+/* Voice Selection Section */
+.voice-selection {
+  background: #fff;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.voice-selection h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #333;
+}
+
+.voice-dropdown {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.voice-select {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+  background: white;
+  cursor: pointer;
+}
+
+.voice-select:focus {
+  outline: none;
+  border-color: #2196f3;
+}
+
+.voice-info {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.voice-language,
+.voice-type {
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #f0f0f0;
+  color: #666;
+}
+
+.voice-type.local {
+  background: #e8f5e8;
+  color: #2e7d32;
+}
+
+.voice-type.online {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
 /* Keyboard Shortcuts Section */
 .keyboard-shortcuts {
   background: #fff;

@@ -7,6 +7,14 @@ const debugLog = (...args: unknown[]) => {
   }
 };
 
+interface Voice {
+  name: string;
+  lang: string;
+  localService: boolean;
+  default: boolean;
+  voiceURI: string;
+}
+
 class PopupController {
   private elements: {
     speakPage: HTMLButtonElement;
@@ -21,17 +29,26 @@ class PopupController {
     textPreview: HTMLSpanElement;
     stopBtn: HTMLButtonElement;
     forceStopBtn: HTMLButtonElement;
+    voiceSelect: HTMLSelectElement;
+    previewVoice: HTMLButtonElement;
+    voiceInfo: HTMLDivElement;
+    voiceLanguage: HTMLSpanElement;
+    voiceType: HTMLSpanElement;
   };
 
   private state = {
     fontSize: 16,
     theme: 'light' as 'light' | 'dark',
+    selectedVoice: '' as string,
   };
 
   private ttsState = {
     isPlaying: false,
     currentText: '',
   };
+
+  private voices: Voice[] = [];
+  private isPreviewPlaying = false;
 
   constructor() {
     this.elements = {
@@ -47,6 +64,11 @@ class PopupController {
       textPreview: document.getElementById('textPreview') as HTMLSpanElement,
       stopBtn: document.getElementById('stopBtn') as HTMLButtonElement,
       forceStopBtn: document.getElementById('forceStopBtn') as HTMLButtonElement,
+      voiceSelect: document.getElementById('voiceSelect') as HTMLSelectElement,
+      previewVoice: document.getElementById('previewVoice') as HTMLButtonElement,
+      voiceInfo: document.getElementById('voiceInfo') as HTMLDivElement,
+      voiceLanguage: document.getElementById('voiceLanguage') as HTMLSpanElement,
+      voiceType: document.getElementById('voiceType') as HTMLSpanElement,
     };
 
     this.initialize();
@@ -55,6 +77,7 @@ class PopupController {
   private async initialize() {
     await this.loadState();
     await this.updateTTSState();
+    await this.loadVoices();
     this.setupEventListeners();
     this.updateUI();
   }
@@ -67,6 +90,123 @@ class PopupController {
       this.state = { ...this.state, ...response.data };
       debugLog('State loaded:', this.state);
     }
+    
+    // Load selected voice from storage
+    const result = await chrome.storage.sync.get('selectedVoice');
+    if (result.selectedVoice) {
+      this.state.selectedVoice = result.selectedVoice;
+    }
+  }
+
+  private async loadVoices() {
+    return new Promise<void>((resolve) => {
+      const loadVoicesFromAPI = () => {
+        const voices = speechSynthesis.getVoices();
+        
+        if (voices.length > 0) {
+          this.voices = voices.map(voice => ({
+            name: voice.name,
+            lang: voice.lang,
+            localService: voice.localService,
+            default: voice.default,
+            voiceURI: voice.voiceURI
+          }));
+          
+          this.populateVoiceSelect();
+          resolve();
+        }
+      };
+
+      // Voices might not be loaded immediately
+      if (speechSynthesis.getVoices().length > 0) {
+        loadVoicesFromAPI();
+      } else {
+        speechSynthesis.addEventListener('voiceschanged', loadVoicesFromAPI, { once: true });
+        // Fallback timeout
+        setTimeout(() => {
+          loadVoicesFromAPI();
+          resolve();
+        }, 1000);
+      }
+    });
+  }
+
+  private populateVoiceSelect() {
+    const voiceSelect = this.elements.voiceSelect;
+    voiceSelect.innerHTML = '<option value="">Default System Voice</option>';
+    
+    // Group voices by language
+    const voicesByLang = new Map<string, Voice[]>();
+    this.voices.forEach(voice => {
+      const lang = voice.lang.split('-')[0];
+      if (!voicesByLang.has(lang)) {
+        voicesByLang.set(lang, []);
+      }
+      voicesByLang.get(lang)!.push(voice);
+    });
+    
+    // Sort languages and add voices
+    const sortedLangs = Array.from(voicesByLang.keys()).sort();
+    sortedLangs.forEach(lang => {
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = this.getLanguageName(lang);
+      
+      voicesByLang.get(lang)!.forEach(voice => {
+        const option = document.createElement('option');
+        option.value = voice.name;
+        option.textContent = `${voice.name} ${voice.default ? '(Default)' : ''}`;
+        optgroup.appendChild(option);
+      });
+      
+      voiceSelect.appendChild(optgroup);
+    });
+    
+    // Set selected voice
+    if (this.state.selectedVoice) {
+      voiceSelect.value = this.state.selectedVoice;
+      this.updateVoiceInfo();
+    }
+    
+    // Enable preview button
+    this.elements.previewVoice.disabled = false;
+  }
+
+  private getLanguageName(langCode: string): string {
+    const languages: Record<string, string> = {
+      'en': 'English',
+      'es': 'Spanish',
+      'fr': 'French',
+      'de': 'German',
+      'it': 'Italian',
+      'pt': 'Portuguese',
+      'ja': 'Japanese',
+      'ko': 'Korean',
+      'zh': 'Chinese',
+      'ar': 'Arabic',
+      'ru': 'Russian',
+      'hi': 'Hindi',
+      'nl': 'Dutch',
+      'sv': 'Swedish'
+    };
+    
+    return languages[langCode] || langCode.toUpperCase();
+  }
+
+  private updateVoiceInfo() {
+    const selectedVoiceName = this.elements.voiceSelect.value;
+    
+    if (!selectedVoiceName) {
+      this.elements.voiceInfo.style.display = 'none';
+      return;
+    }
+    
+    const voice = this.voices.find(v => v.name === selectedVoiceName);
+    if (voice) {
+      this.elements.voiceLanguage.textContent = voice.lang;
+      this.elements.voiceType.textContent = voice.localService ? 'Local' : 'Online';
+      this.elements.voiceType.className = `voice-type ${voice.localService ? 'local' : 'online'}`;
+      this.elements.voiceInfo.style.display = 'flex';
+    }
   }
 
   private setupEventListeners() {
@@ -78,6 +218,10 @@ class PopupController {
       e.preventDefault();
       chrome.runtime.openOptionsPage();
     });
+
+    // Voice selection events
+    this.elements.voiceSelect.addEventListener('change', () => this.handleVoiceChange());
+    this.elements.previewVoice.addEventListener('click', () => this.handleVoicePreview());
 
     // Listen for TTS state changes and settings updates
     chrome.runtime.onMessage.addListener((message: Message) => {
@@ -129,7 +273,7 @@ class PopupController {
       
       const message: Message = {
         type: MessageType.START_SPEECH,
-        payload: { text },
+        payload: { text, voice: this.state.selectedVoice || undefined },
       };
 
       debugLog('Sending message to content script...');
@@ -156,6 +300,65 @@ class PopupController {
       debugLog('Exception caught:', error);
       this.elements.testText.placeholder = 'Error: ' + (error as Error).message;
     }
+  }
+
+  private async handleVoiceChange() {
+    const selectedVoice = this.elements.voiceSelect.value;
+    this.state.selectedVoice = selectedVoice;
+    
+    // Save to storage
+    await chrome.storage.sync.set({ selectedVoice });
+    
+    // Update voice info display
+    this.updateVoiceInfo();
+    
+    // Notify background script
+    chrome.runtime.sendMessage({
+      type: MessageType.VOICE_CHANGED,
+      payload: { voice: selectedVoice }
+    });
+    
+    debugLog('Voice changed to:', selectedVoice);
+  }
+
+  private async handleVoicePreview() {
+    if (this.isPreviewPlaying) {
+      // Stop preview
+      speechSynthesis.cancel();
+      this.isPreviewPlaying = false;
+      this.elements.previewVoice.querySelector('.btn-text')!.textContent = 'Preview';
+      return;
+    }
+
+    const selectedVoiceName = this.elements.voiceSelect.value;
+    const previewText = this.elements.testText.value.trim() || 'Hello! This is how this voice sounds.';
+    
+    // Use the Web Speech API directly for preview
+    const utterance = new SpeechSynthesisUtterance(previewText);
+    
+    if (selectedVoiceName) {
+      const voice = speechSynthesis.getVoices().find(v => v.name === selectedVoiceName);
+      if (voice) {
+        utterance.voice = voice;
+      }
+    }
+    
+    utterance.onstart = () => {
+      this.isPreviewPlaying = true;
+      this.elements.previewVoice.querySelector('.btn-text')!.textContent = 'Stop';
+    };
+    
+    utterance.onend = () => {
+      this.isPreviewPlaying = false;
+      this.elements.previewVoice.querySelector('.btn-text')!.textContent = 'Preview';
+    };
+    
+    utterance.onerror = () => {
+      this.isPreviewPlaying = false;
+      this.elements.previewVoice.querySelector('.btn-text')!.textContent = 'Preview';
+    };
+    
+    speechSynthesis.speak(utterance);
   }
 
   private async updateTTSState() {

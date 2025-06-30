@@ -49,6 +49,22 @@
         <button id="testSpeak" class="btn btn-small">Test Speech</button>
       </section>
       
+      <section class="voice-selection">
+        <h3>Voice Selection</h3>
+        <div class="voice-dropdown">
+          <select id="voiceSelect" class="voice-select">
+            <option value="">Loading voices...</option>
+          </select>
+          <button id="previewVoice" class="btn btn-small btn-secondary" disabled>
+            <span class="btn-text">Preview</span>
+          </button>
+        </div>
+        <div id="voiceInfo" class="voice-info" style="display: none;">
+          <span id="voiceLanguage" class="voice-language"></span>
+          <span id="voiceType" class="voice-type"></span>
+        </div>
+      </section>
+      
       <section class="settings-preview">
         <div class="setting-item">
           <label>Font Size:</label>
