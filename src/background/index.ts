@@ -1,4 +1,5 @@
 import { MessageType, Message, MessageResponse } from '@common/types/messages';
+import { VoiceManager, VoiceInfo } from '@common/voice-manager';
 // Temporary debug logging - replace devLog with console.log for debugging
 const debugLog = (...args: unknown[]) => {
   if (process.env.NODE_ENV === 'development') {
@@ -134,9 +135,11 @@ class ContextMenuManager {
   private isMenuCreated = false;
   private selectionManager: SelectionManager;
   private ttsManager: TTSManager | null = null;
+  private voiceManager: VoiceManager;
 
-  constructor(selectionManager: SelectionManager) {
+  constructor(selectionManager: SelectionManager, voiceManager: VoiceManager) {
     this.selectionManager = selectionManager;
+    this.voiceManager = voiceManager;
     this.init();
   }
 
@@ -223,6 +226,7 @@ class ContextMenuManager {
     });
   }
 
+
   private async syncMenuWithCurrentState() {
     try {
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -275,7 +279,8 @@ class ContextMenuManager {
     }
   }
 
-  private async triggerTTS(info: chrome.contextMenus.OnClickData, tab: chrome.tabs.Tab) {
+
+  private async triggerTTS(info: chrome.contextMenus.OnClickData, tab: chrome.tabs.Tab, voice?: VoiceInfo) {
     try {
       // Validate tab and selection
       if (!tab || !tab.id) {
@@ -299,8 +304,8 @@ class ContextMenuManager {
         throw new Error('Selected text is not suitable for TTS');
       }
 
-      // Start TTS with retry logic
-      await this.startTTSWithRetry(textToSpeak, tab);
+      // Start TTS with retry logic and optional voice
+      await this.startTTSWithRetry(textToSpeak, tab, voice);
       
       this.showTTSFeedback(tab, 'started');
       
@@ -405,10 +410,10 @@ class ContextMenuManager {
     return readableChars > 0;
   }
 
-  private async startTTSWithRetry(text: string, tab: chrome.tabs.Tab, retries = 1): Promise<void> {
+  private async startTTSWithRetry(text: string, tab: chrome.tabs.Tab, voice?: VoiceInfo, retries = 1): Promise<void> {
     for (let i = 0; i <= retries; i++) {
       try {
-        return await this.startTTS(text, tab);
+        return await this.startTTS(text, tab, voice);
       } catch (error) {
         if (i === retries) {
           throw error;
@@ -418,11 +423,11 @@ class ContextMenuManager {
     }
   }
 
-  private async startTTS(text: string, tab: chrome.tabs.Tab): Promise<void> {
+  private async startTTS(text: string, tab: chrome.tabs.Tab, voice?: VoiceInfo): Promise<void> {
     // Send message to start TTS using Web Speech API in content script
     return chrome.tabs.sendMessage(tab.id!, {
       type: MessageType.START_SPEECH,
-      payload: { text: text }
+      payload: { text: text, voice: voice || this.voiceManager.getSelectedVoice() }
     });
   }
 
@@ -502,6 +507,7 @@ class ContextMenuManager {
           debugLog('Context menus updated - speak:', speakMenuProperties.enabled, 'stop:', stopMenuProperties.enabled);
         }
       });
+
     } catch (error) {
       debugLog('Error in updateMenuState:', error);
     }
@@ -571,8 +577,10 @@ class TTSManager {
   private stopTimeout: NodeJS.Timeout | null = null;
   private forceStopAttempts = 0;
   private contextMenuManager: ContextMenuManager | null = null;
+  private voiceManager: VoiceManager;
 
-  constructor() {
+  constructor(voiceManager: VoiceManager) {
+    this.voiceManager = voiceManager;
     this.init();
   }
 
@@ -619,9 +627,76 @@ class TTSManager {
 
       case MessageType.GET_TTS_STATE:
         return this.getState();
+
+      case MessageType.GET_VOICE_DATA:
+        return {
+          voices: this.voiceManager.getAvailableVoices(),
+          selectedVoice: this.voiceManager.getSelectedVoice()
+        };
+        
+      case MessageType.SELECT_VOICE:
+        if (request.payload && typeof request.payload.voiceName === 'string') {
+          const selected = await this.voiceManager.selectVoice(request.payload.voiceName);
+          return { success: selected };
+        }
+        return { success: false };
+        
+      case MessageType.PREVIEW_VOICE:
+        if (request.payload && typeof request.payload.voiceName === 'string') {
+          await this.previewVoice(request.payload.voiceName);
+          return { success: true };
+        }
+        return { success: false };
+        
+      case MessageType.UPDATE_VOICE_DATA:
+        if (request.payload && Array.isArray(request.payload.voices)) {
+          await this.voiceManager.updateVoiceData(request.payload.voices);
+          return { success: true };
+        }
+        return { success: false };
         
       default:
         throw new Error('Unknown TTS message type');
+    }
+  }
+
+  private async previewVoice(voiceName: string): Promise<void> {
+    const voices = this.voiceManager.getAvailableVoices();
+    const voice = voices.find(v => v.name === voiceName);
+    
+    debugLog('Preview voice requested:', voiceName, 'Found:', voice ? 'yes' : 'no');
+    
+    if (voice) {
+      // Send preview command to active tab
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      debugLog('Active tab:', activeTab?.id, activeTab?.url);
+      
+      if (activeTab?.id) {
+        // Check if the tab URL allows content scripts
+        if (activeTab.url && (activeTab.url.startsWith('chrome://') || 
+            activeTab.url.startsWith('chrome-extension://') || 
+            activeTab.url.startsWith('edge://'))) {
+          debugLog('Cannot inject content script into:', activeTab.url);
+          // For these pages, we could show an error or handle differently
+          throw new Error('Voice preview not available on this page');
+        }
+        
+        try {
+          await chrome.tabs.sendMessage(activeTab.id, {
+            type: MessageType.PREVIEW_VOICE,
+            payload: { voice: voice }
+          });
+          debugLog('Preview message sent to tab');
+        } catch (error) {
+          debugLog('Error sending preview message:', error);
+          throw error;
+        }
+      } else {
+        throw new Error('No active tab found for preview');
+      }
+    } else {
+      throw new Error('Voice not found: ' + voiceName);
     }
   }
 
@@ -649,10 +724,13 @@ class TTSManager {
       // Reset force stop attempts
       this.forceStopAttempts = 0;
 
+      // Get voice from data or use default
+      const voice = data.voice || this.voiceManager.getSelectedVoice();
+
       // Send speech command to content script
       await chrome.tabs.sendMessage(tabId, {
         type: MessageType.START_SPEECH,
-        payload: { text: text }
+        payload: { text: text, voice: voice }
       });
 
       this.isActive = true;
@@ -974,11 +1052,18 @@ class TTSManager {
 let selectionManager: SelectionManager;
 let contextMenuManager: ContextMenuManager;
 let ttsManager: TTSManager;
+let voiceManager: VoiceManager;
 
 try {
+  // Initialize voice manager first
+  voiceManager = new VoiceManager();
+  voiceManager.init().catch(error => {
+    console.error('Failed to initialize voice manager:', error);
+  });
+  
   selectionManager = new SelectionManager();
-  contextMenuManager = new ContextMenuManager(selectionManager);
-  ttsManager = new TTSManager();
+  contextMenuManager = new ContextMenuManager(selectionManager, voiceManager);
+  ttsManager = new TTSManager(voiceManager);
   
   // Link the managers for bi-directional communication
   selectionManager.setContextMenuManager(contextMenuManager);
@@ -1030,7 +1115,8 @@ chrome.runtime.onMessage.addListener(
     if (ttsManager) {
       try {
         if ([MessageType.START_TTS, MessageType.STOP_TTS, MessageType.FORCE_STOP_TTS, MessageType.PAUSE_TTS, 
-             MessageType.RESUME_TTS, MessageType.TOGGLE_PAUSE_TTS, MessageType.TTS_STATE_CHANGED, MessageType.TTS_ERROR, MessageType.GET_TTS_STATE].includes(message.type)) {
+             MessageType.RESUME_TTS, MessageType.TOGGLE_PAUSE_TTS, MessageType.TTS_STATE_CHANGED, MessageType.TTS_ERROR, MessageType.GET_TTS_STATE,
+             MessageType.GET_VOICE_DATA, MessageType.SELECT_VOICE, MessageType.PREVIEW_VOICE, MessageType.UPDATE_VOICE_DATA].includes(message.type)) {
           ttsManager.handleMessage(message, sender)
             .then(response => sendResponse({ success: true, data: response }))
             .catch(error => sendResponse({ success: false, error: error.message }));

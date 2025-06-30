@@ -58,7 +58,8 @@ export class SpeechSynthesizer {
   };
 
   constructor() {
-    this.init();
+    // Don't auto-initialize in constructor to avoid blocking
+    // Call init() manually when ready
   }
 
   async init(): Promise<void> {
@@ -582,13 +583,18 @@ export class SpeechSynthesizer {
     }));
   }
 
-  setVoice(voiceName: string): boolean {
+  setVoice(voiceNameOrInfo: string | { name: string }): boolean {
+    const voiceName = typeof voiceNameOrInfo === 'string' ? voiceNameOrInfo : voiceNameOrInfo.name;
     const voice = this.availableVoices.find(v => v.name === voiceName);
     if (voice) {
       this.settings.voice = voice;
       return true;
     }
     return false;
+  }
+
+  getVoice(): SpeechSynthesisVoice | null {
+    return this.settings.voice;
   }
 
   setRate(rate: number): boolean {
