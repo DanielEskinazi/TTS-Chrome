@@ -480,17 +480,28 @@ class ContextMenuManager {
   public updateMenuState(hasSelection: boolean) {
     if (!this.isMenuCreated) return;
 
-    const isPlaying = this.ttsManager ? Boolean(this.ttsManager.getState().isActive) : false;
+    const ttsState = this.ttsManager ? this.ttsManager.getState() : { isActive: false, isPaused: false };
+    const isPlaying = Boolean(ttsState.isActive) && !ttsState.isPaused;
+    const isPaused = Boolean(ttsState.isPaused);
+    const isActive = Boolean(ttsState.isActive);
+
+    debugLog('[Context-Menu-Debug] updateMenuState called - hasSelection:', hasSelection, 'isPlaying:', isPlaying, 'isPaused:', isPaused, 'isActive:', isActive);
 
     // Update speak menu (enabled when text is selected and not playing)
     const speakMenuProperties = {
-      enabled: hasSelection && !isPlaying,
+      enabled: hasSelection && !isActive,
       title: hasSelection ? 'Speak' : 'Speak (select text first)'
     };
 
-    // Update stop menu (enabled when playing)
+    // Update stop menu (enabled when playing or paused)
     const stopMenuProperties = {
-      enabled: isPlaying
+      enabled: isActive
+    };
+
+    // Update pause/resume menu
+    const pauseResumeProperties = {
+      enabled: isActive,
+      title: isPaused ? 'Resume Speaking' : 'Pause Speaking'
     };
 
     try {
@@ -503,8 +514,14 @@ class ContextMenuManager {
       chrome.contextMenus.update(this.stopMenuId, stopMenuProperties, () => {
         if (chrome.runtime.lastError) {
           debugLog('Error updating stop menu:', chrome.runtime.lastError);
+        }
+      });
+
+      chrome.contextMenus.update(this.pauseResumeMenuId, pauseResumeProperties, () => {
+        if (chrome.runtime.lastError) {
+          debugLog('Error updating pause/resume menu:', chrome.runtime.lastError);
         } else {
-          debugLog('Context menus updated - speak:', speakMenuProperties.enabled, 'stop:', stopMenuProperties.enabled);
+          debugLog('[Context-Menu-Debug] Context menus updated - speak:', speakMenuProperties.enabled, 'stop:', stopMenuProperties.enabled, 'pause/resume:', pauseResumeProperties.enabled, 'title:', pauseResumeProperties.title);
         }
       });
 
@@ -518,48 +535,42 @@ class ContextMenuManager {
 
     const isPlaying = (state === 'started' || state === 'resumed');
     const isPaused = state === 'paused';
+    const isActive = isPlaying || isPaused;
     const hasSelection = this.selectionManager.hasSelection();
 
-    // Update speak menu (enabled when text is selected and not playing)
+    debugLog('[Context-Menu-Debug] updateMenusForTTSState called - state:', state, 'isPlaying:', isPlaying, 'isPaused:', isPaused, 'isActive:', isActive, 'hasSelection:', hasSelection);
+
+    // Update speak menu (enabled when text is selected and not active)
     chrome.contextMenus.update(this.speakMenuId, {
-      enabled: hasSelection && !isPlaying
+      enabled: hasSelection && !isActive,
+      title: hasSelection ? 'Speak' : 'Speak (select text first)'
     }, () => {
       if (chrome.runtime.lastError) {
         debugLog('Error updating speak menu:', chrome.runtime.lastError);
       }
     });
 
-    // Update stop menu (enabled when playing or paused)
+    // Update stop menu (enabled when active)
     chrome.contextMenus.update(this.stopMenuId, {
-      enabled: isPlaying || isPaused
+      enabled: isActive,
+      title: 'Stop Speaking'
     }, () => {
       if (chrome.runtime.lastError) {
         debugLog('Error updating stop menu:', chrome.runtime.lastError);
       }
     });
 
-    // Update pause/resume menu
-    if (isPlaying || isPaused) {
-      chrome.contextMenus.update(this.pauseResumeMenuId, {
-        enabled: true,
-        title: isPaused ? 'Resume Speaking' : 'Pause Speaking'
-      }, () => {
-        if (chrome.runtime.lastError) {
-          debugLog('Error updating pause/resume menu:', chrome.runtime.lastError);
-        }
-      });
-    } else {
-      chrome.contextMenus.update(this.pauseResumeMenuId, {
-        enabled: false,
-        title: 'Pause Speaking'
-      }, () => {
-        if (chrome.runtime.lastError) {
-          debugLog('Error updating pause/resume menu:', chrome.runtime.lastError);
-        }
-      });
-    }
-
-    debugLog('Menus updated for TTS state:', state, 'playing:', isPlaying, 'paused:', isPaused);
+    // Update pause/resume menu (enabled when active)
+    chrome.contextMenus.update(this.pauseResumeMenuId, {
+      enabled: isActive,
+      title: isPaused ? 'Resume Speaking' : 'Pause Speaking'
+    }, () => {
+      if (chrome.runtime.lastError) {
+        debugLog('Error updating pause/resume menu:', chrome.runtime.lastError);
+      } else {
+        debugLog('[Context-Menu-Debug] Menus updated for TTS state:', state, 'speak enabled:', hasSelection && !isActive, 'stop enabled:', isActive, 'pause/resume enabled:', isActive, 'pause/resume title:', isPaused ? 'Resume Speaking' : 'Pause Speaking');
+      }
+    });
   }
 
   public destroy() {
@@ -733,8 +744,16 @@ class TTSManager {
         payload: { text: text, voice: voice }
       });
 
+      // Update state immediately for context menu updates
       this.isActive = true;
+      this.isPaused = false;
       this.currentTabId = tabId;
+      
+      // Trigger context menu update immediately
+      if (this.contextMenuManager) {
+        debugLog('[Context-Menu-Debug] TTS started, updating context menus');
+        this.contextMenuManager.updateMenusForTTSState('started', { isPlaying: true, isPaused: false });
+      }
       
       // Set up automatic stop timeout for very long text
       this.setStopTimeout();
@@ -773,7 +792,14 @@ class TTSManager {
 
       // Reset state
       this.isActive = false;
+      this.isPaused = false;
       this.currentTabId = null;
+      
+      // Trigger context menu update immediately
+      if (this.contextMenuManager) {
+        debugLog('[Context-Menu-Debug] TTS stopped, updating context menus');
+        this.contextMenuManager.updateMenusForTTSState('stopped', { isPlaying: false, isPaused: false });
+      }
       
       // Broadcast stop state
       this.broadcastStateChange('stopped', { isPlaying: false });
@@ -800,6 +826,15 @@ class TTSManager {
           payload: { source: source }
         });
         
+        // Update state immediately
+        this.isPaused = true;
+        
+        // Trigger context menu update immediately
+        if (this.contextMenuManager) {
+          debugLog('[Context-Menu-Debug] TTS paused, updating context menus');
+          this.contextMenuManager.updateMenusForTTSState('paused', { isPlaying: false, isPaused: true });
+        }
+        
         debugLog('TTS paused, source:', source);
         return { success: true };
       } catch (error) {
@@ -819,6 +854,15 @@ class TTSManager {
           type: MessageType.RESUME_SPEECH,
           payload: { source: source }
         });
+        
+        // Update state immediately
+        this.isPaused = false;
+        
+        // Trigger context menu update immediately
+        if (this.contextMenuManager) {
+          debugLog('[Context-Menu-Debug] TTS resumed, updating context menus');
+          this.contextMenuManager.updateMenusForTTSState('resumed', { isPlaying: true, isPaused: false });
+        }
         
         debugLog('TTS resumed, source:', source);
         return { success: true };
@@ -917,10 +961,14 @@ class TTSManager {
 
   private handleStateChange(data: Record<string, unknown>, sender?: chrome.runtime.MessageSender): Record<string, unknown> {
     const state = data.state as string;
+    const playbackState = data.playbackState as Record<string, unknown> || {};
+    
+    debugLog('[Context-Menu-Debug] Received TTS state change:', state, 'playbackState:', playbackState);
     
     switch (state) {
       case 'started':
         this.isActive = true;
+        this.isPaused = false;
         // Set currentTabId from the message sender
         if (sender?.tab?.id) {
           this.currentTabId = sender.tab.id;
@@ -934,38 +982,45 @@ class TTSManager {
             console.warn('Could not get active tab:', error);
           });
         }
+        debugLog('[Context-Menu-Debug] TTS started - isActive:', this.isActive, 'tabId:', this.currentTabId);
         break;
         
       case 'ended':
       case 'stopped':
         this.isActive = false;
+        this.isPaused = false;
         this.currentTabId = null;
         this.clearStopTimeout();
+        debugLog('[Context-Menu-Debug] TTS stopped - isActive:', this.isActive);
         break;
         
       case 'paused':
         this.isActive = true;
         this.isPaused = true;
+        debugLog('[Context-Menu-Debug] TTS paused - isActive:', this.isActive, 'isPaused:', this.isPaused);
         break;
         
       case 'resumed':
         this.isActive = true;
         this.isPaused = false;
+        debugLog('[Context-Menu-Debug] TTS resumed - isActive:', this.isActive, 'isPaused:', this.isPaused);
         break;
         
       case 'error':
         // Handle error state
         this.forceCleanup();
+        debugLog('[Context-Menu-Debug] TTS error - state reset');
         break;
     }
     
-    // Update context menu state
+    // Update context menu state immediately
     if (this.contextMenuManager) {
-      this.contextMenuManager.updateMenusForTTSState(state, data.playbackState as Record<string, unknown> || {});
+      debugLog('[Context-Menu-Debug] Updating context menus for state:', state);
+      this.contextMenuManager.updateMenusForTTSState(state, playbackState);
     }
     
     // Broadcast state change to interested parties (popup, etc.)
-    this.broadcastStateChange(state, data.playbackState as Record<string, unknown> || {});
+    this.broadcastStateChange(state, playbackState);
     
     return { success: true };
   }
@@ -1041,6 +1096,7 @@ class TTSManager {
   getState(): Record<string, unknown> {
     return {
       isActive: this.isActive,
+      isPaused: this.isPaused,
       currentTabId: this.currentTabId,
       forceStopAttempts: this.forceStopAttempts,
       hasTimeout: this.stopTimeout !== null
