@@ -104,6 +104,14 @@ class TextSelectionHandler {
   }
 
   private handleKeyDown(event: KeyboardEvent) {
+    // Handle Space bar for pause/resume when TTS is active
+    if (event.key === ' ' && this.isTTSActive()) {
+      if (!this.isInputElement(event.target as Element)) {
+        event.preventDefault();
+        this.togglePauseTTS();
+      }
+    }
+    
     // Handle Escape key to stop TTS
     if (event.key === 'Escape') {
       this.handleEscapeKey(event);
@@ -137,6 +145,11 @@ class TextSelectionHandler {
       payload: {
         shortcuts: [
           {
+            key: 'Space',
+            description: 'Pause/Resume TTS playback',
+            condition: 'tts-active'
+          },
+          {
             key: 'Escape',
             description: 'Stop TTS playback',
             condition: 'tts-playing'
@@ -151,6 +164,48 @@ class TextSelectionHandler {
     }).catch(error => {
       devLog('Could not register shortcuts:', error);
     });
+  }
+
+  private isInputElement(element: Element): boolean {
+    const inputTags = ['INPUT', 'TEXTAREA', 'SELECT'];
+    return inputTags.includes(element.tagName) || 
+           element.getAttribute('contenteditable') === 'true';
+  }
+
+  private isTTSActive(): boolean {
+    if (this.speechSynthesizer) {
+      const state = this.speechSynthesizer.getPlaybackState();
+      return state.isPlaying || state.isPaused;
+    }
+    return false;
+  }
+
+  private async togglePauseTTS(): Promise<void> {
+    try {
+      // Toggle pause locally
+      if (this.speechSynthesizer) {
+        const toggled = this.speechSynthesizer.togglePause();
+        
+        if (toggled) {
+          // Notify background script
+          await chrome.runtime.sendMessage({
+            type: MessageType.TOGGLE_PAUSE_TTS,
+            payload: {
+              source: 'keyboard',
+              timestamp: Date.now()
+            }
+          });
+          
+          // Show feedback
+          const state = this.speechSynthesizer.getPlaybackState();
+          const message = state.isPaused ? '⏸️ Speech paused' : '▶️ Speech resumed';
+          this.showUserFeedback(message, 'info');
+        }
+      }
+    } catch (error) {
+      console.error('Error toggling pause:', error);
+      this.showUserFeedback('❌ Error toggling pause', 'error');
+    }
   }
 
   private processSelection() {
@@ -289,6 +344,11 @@ class TextSelectionHandler {
         sendResponse({ success: true });
         break;
         
+      case MessageType.TOGGLE_PAUSE_SPEECH:
+        this.handleTogglePauseSpeech();
+        sendResponse({ success: true });
+        break;
+        
       default:
         // Don't handle other message types here
         break;
@@ -301,6 +361,18 @@ class TextSelectionHandler {
     switch (status) {
       case 'started':
         this.showUserFeedback('🔊 TTS Started', 'success');
+        break;
+        
+      case 'paused':
+        this.showUserFeedback('⏸️ Speech paused', 'info');
+        break;
+        
+      case 'resumed':
+        this.showUserFeedback('▶️ Speech resumed', 'info');
+        break;
+        
+      case 'stopped':
+        this.showUserFeedback('⏹️ Speech stopped', 'info');
         break;
         
       case 'no-selection':
@@ -561,6 +633,28 @@ class TextSelectionHandler {
     } catch (error) {
       console.error('Error resuming speech:', error);
       this.showUserFeedback('❌ Error resuming speech', 'error');
+    }
+  }
+
+  private handleTogglePauseSpeech(): void {
+    try {
+      if (!this.speechSynthesizer) {
+        this.showUserFeedback('⚠️ Speech synthesizer not available', 'warning');
+        return;
+      }
+      
+      const toggled = this.speechSynthesizer.togglePause();
+      
+      if (toggled) {
+        const state = this.speechSynthesizer.getPlaybackState();
+        const message = state.isPaused ? '⏸️ Speech paused' : '▶️ Speech resumed';
+        this.showUserFeedback(message, 'info');
+      } else {
+        this.showUserFeedback('⚠️ Speech not active', 'warning');
+      }
+    } catch (error) {
+      console.error('Error toggling pause:', error);
+      this.showUserFeedback('❌ Error toggling pause', 'error');
     }
   }
 

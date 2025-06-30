@@ -19,6 +19,7 @@ class PopupController {
     ttsStatus: HTMLDivElement;
     currentText: HTMLDivElement;
     textPreview: HTMLSpanElement;
+    playPauseBtn: HTMLButtonElement;
     stopBtn: HTMLButtonElement;
     forceStopBtn: HTMLButtonElement;
   };
@@ -30,6 +31,7 @@ class PopupController {
 
   private ttsState = {
     isPlaying: false,
+    isPaused: false,
     currentText: '',
   };
 
@@ -45,6 +47,7 @@ class PopupController {
       ttsStatus: document.getElementById('ttsStatus') as HTMLDivElement,
       currentText: document.getElementById('currentText') as HTMLDivElement,
       textPreview: document.getElementById('textPreview') as HTMLSpanElement,
+      playPauseBtn: document.getElementById('playPauseBtn') as HTMLButtonElement,
       stopBtn: document.getElementById('stopBtn') as HTMLButtonElement,
       forceStopBtn: document.getElementById('forceStopBtn') as HTMLButtonElement,
     };
@@ -72,6 +75,7 @@ class PopupController {
   private setupEventListeners() {
     this.elements.speakPage.addEventListener('click', () => this.speakCurrentPage());
     this.elements.testSpeak.addEventListener('click', () => this.testSpeech());
+    this.elements.playPauseBtn.addEventListener('click', () => this.handlePlayPause());
     this.elements.stopBtn.addEventListener('click', () => this.handleStop());
     this.elements.forceStopBtn.addEventListener('click', () => this.handleForceStop());
     this.elements.openOptions.addEventListener('click', (e) => {
@@ -177,13 +181,19 @@ class PopupController {
   private handleTTSStateChange(data: Record<string, unknown>) {
     const { state, playbackState } = data;
     
-    // Determine if TTS is playing
+    // Determine if TTS is playing or paused
     const isPlaying = (state === 'started' || state === 'resumed') && 
                       playbackState && 
                       typeof (playbackState as Record<string, unknown>).isPlaying === 'boolean' &&
                       (playbackState as Record<string, unknown>).isPlaying;
     
+    const isPaused = state === 'paused' && 
+                     playbackState && 
+                     typeof (playbackState as Record<string, unknown>).isPaused === 'boolean' &&
+                     (playbackState as Record<string, unknown>).isPaused;
+    
     this.ttsState.isPlaying = Boolean(isPlaying);
+    this.ttsState.isPaused = Boolean(isPaused);
     
     // Update current text if available
     if (playbackState && (playbackState as Record<string, unknown>).currentText) {
@@ -191,6 +201,30 @@ class PopupController {
     }
     
     this.updateTTSUI();
+  }
+
+  private async handlePlayPause() {
+    try {
+      this.elements.playPauseBtn.disabled = true;
+      
+      if (this.ttsState.isPaused || this.ttsState.isPlaying) {
+        await chrome.runtime.sendMessage({
+          type: MessageType.TOGGLE_PAUSE_TTS,
+          payload: { source: 'popup' }
+        });
+      }
+      
+      // UI will be updated via message listener
+      
+    } catch (error) {
+      debugLog('Error toggling pause:', error);
+      this.showError('Failed to toggle pause');
+    } finally {
+      // Re-enable button after a short delay
+      setTimeout(() => {
+        this.elements.playPauseBtn.disabled = false;
+      }, 200);
+    }
   }
 
   private async handleStop() {
@@ -234,9 +268,19 @@ class PopupController {
 
   private updateTTSUI() {
     // Update TTS status display
-    if (this.ttsState.isPlaying) {
+    if (this.ttsState.isPaused) {
+      this.elements.ttsStatus.querySelector('.status-text')!.textContent = 'TTS is paused';
+      this.elements.ttsStatus.className = 'status-card paused';
+      this.updatePlayPauseButton('resume');
+      
+      // Show current text if available
+      if (this.ttsState.currentText) {
+        this.showCurrentText();
+      }
+    } else if (this.ttsState.isPlaying) {
       this.elements.ttsStatus.querySelector('.status-text')!.textContent = 'TTS is playing';
       this.elements.ttsStatus.className = 'status-card playing';
+      this.updatePlayPauseButton('pause');
       
       // Show current text if available
       if (this.ttsState.currentText) {
@@ -245,12 +289,34 @@ class PopupController {
     } else {
       this.elements.ttsStatus.querySelector('.status-text')!.textContent = 'TTS is not active';
       this.elements.ttsStatus.className = 'status-card stopped';
+      this.updatePlayPauseButton('play');
       this.hideCurrentText();
     }
     
     // Update button states
-    this.elements.stopBtn.disabled = !this.ttsState.isPlaying;
-    this.elements.forceStopBtn.disabled = !this.ttsState.isPlaying;
+    this.elements.playPauseBtn.disabled = !(this.ttsState.isPlaying || this.ttsState.isPaused);
+    this.elements.stopBtn.disabled = !(this.ttsState.isPlaying || this.ttsState.isPaused);
+    this.elements.forceStopBtn.disabled = !(this.ttsState.isPlaying || this.ttsState.isPaused);
+  }
+
+  private updatePlayPauseButton(mode: 'play' | 'pause' | 'resume') {
+    const iconSpan = this.elements.playPauseBtn.querySelector('.btn-icon') as HTMLSpanElement;
+    const textSpan = this.elements.playPauseBtn.querySelector('.btn-text') as HTMLSpanElement;
+    
+    switch (mode) {
+      case 'play':
+        iconSpan.textContent = '▶️';
+        textSpan.textContent = 'Play';
+        break;
+      case 'pause':
+        iconSpan.textContent = '⏸️';
+        textSpan.textContent = 'Pause';
+        break;
+      case 'resume':
+        iconSpan.textContent = '▶️';
+        textSpan.textContent = 'Resume';
+        break;
+    }
   }
 
   private showCurrentText() {

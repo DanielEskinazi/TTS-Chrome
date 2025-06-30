@@ -23,6 +23,10 @@
       </section>
       
       <section class="tts-controls">
+        <button id="playPauseBtn" class="btn btn-play-pause" disabled>
+          <span class="btn-icon">▶️</span>
+          <span class="btn-text">Play</span>
+        </button>
         <button id="stopBtn" class="btn btn-stop" disabled>
           <span class="btn-icon">⏹️</span>
           <span class="btn-text">Stop Speaking</span>
@@ -62,6 +66,9 @@
       
       <section class="keyboard-shortcuts">
         <h3>Keyboard Shortcuts:</h3>
+        <div class="shortcut-item">
+          <kbd>Space</kbd> - Pause/Resume TTS (when active)
+        </div>
         <div class="shortcut-item">
           <kbd>Escape</kbd> - Stop TTS (when playing)
         </div>
