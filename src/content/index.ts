@@ -116,13 +116,13 @@ class TextSelectionHandler {
       
       // Debounce: Ignore if called within 300ms of last call
       if (now - this.lastShortcutTime < 300) {
-        console.log('[KEYBOARD-FIX-v4] Ignoring duplicate shortcut (debounced)');
+        devLog('[KEYBOARD-FIX-v4] Ignoring duplicate shortcut (debounced)');
         event.preventDefault();
         return;
       }
       
       this.lastShortcutTime = now;
-      console.log('[KEYBOARD-FIX-v4] TTS keyboard shortcut triggered: Ctrl+Shift+Space');
+      devLog('[KEYBOARD-FIX-v4] TTS keyboard shortcut triggered: Ctrl+Shift+Space');
       
       // Always allow TTS shortcuts - they're more important than input conflicts
       event.preventDefault();
@@ -135,7 +135,7 @@ class TextSelectionHandler {
     const isPlaying = this.isTTSPlaying();
     const isPaused = this.isTTSPaused();
     
-    console.log('[KEYBOARD-FIX-v6] TTS shortcut handler called:', {
+    devLog('[KEYBOARD-FIX-v6] TTS shortcut handler called:', {
       isPlaying,
       isPaused,
       speechSynthesizerAvailable: !!this._speechSynthesizer
@@ -143,10 +143,10 @@ class TextSelectionHandler {
     
     if (isPlaying || isPaused) {
       // If TTS is active (playing or paused), toggle pause/resume
-      console.log('[KEYBOARD-FIX-v6] TTS is active - toggling pause/resume');
+      devLog('[KEYBOARD-FIX-v6] TTS is active - toggling pause/resume');
       this.togglePauseTTS();
     } else {
-      console.log('[KEYBOARD-FIX-v6] TTS is not active - no action taken');
+      devLog('[KEYBOARD-FIX-v6] TTS is not active - no action taken');
     }
   }
 
@@ -170,8 +170,6 @@ class TextSelectionHandler {
 
   private isInputElement(element: Element): boolean {
     // Only block the shortcut for actual text input elements where the user is typing
-    const inputTags = ['INPUT', 'TEXTAREA'];
-    const isInputElement = inputTags.includes(element.tagName);
     const isContentEditable = element.getAttribute('contenteditable') === 'true';
     
     // For INPUT elements, only block if it's a text input type
@@ -196,7 +194,7 @@ class TextSelectionHandler {
     try {
       // Toggle pause locally only (don't notify background to avoid double toggle)
       if (this._speechSynthesizer) {
-        console.log('[KEYBOARD-FIX-v5] Calling togglePause on SpeechSynthesizer');
+        devLog('[KEYBOARD-FIX-v5] Calling togglePause on SpeechSynthesizer');
         const toggled = this._speechSynthesizer.togglePause();
         
         if (toggled) {
@@ -204,9 +202,9 @@ class TextSelectionHandler {
           const state = this._speechSynthesizer.getPlaybackState();
           const message = state.isPaused ? '⏸️ Speech paused' : '▶️ Speech resumed';
           this.showUserFeedback(message, 'info');
-          console.log('[KEYBOARD-FIX-v5] Toggle successful, new state:', state.isPaused ? 'PAUSED' : 'PLAYING');
+          devLog('[KEYBOARD-FIX-v5] Toggle successful, new state:', state.isPaused ? 'PAUSED' : 'PLAYING');
         } else {
-          console.log('[KEYBOARD-FIX-v5] Toggle failed');
+          devLog('[KEYBOARD-FIX-v5] Toggle failed');
         }
       }
     } catch (error) {
