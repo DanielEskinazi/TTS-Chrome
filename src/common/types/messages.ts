@@ -46,11 +46,21 @@ export enum MessageType {
   PREVIEW_VOICE = 'PREVIEW_VOICE',
   VOICE_CHANGED = 'VOICE_CHANGED',
   UPDATE_VOICE_DATA = 'UPDATE_VOICE_DATA',
+  
+  // Speed control
+  GET_SPEED_INFO = 'GET_SPEED_INFO',
+  SET_SPEED = 'SET_SPEED',
+  INCREMENT_SPEED = 'INCREMENT_SPEED',
+  DECREMENT_SPEED = 'DECREMENT_SPEED',
+  SPEED_CHANGED = 'SPEED_CHANGED',
+  CHANGE_SPEED = 'CHANGE_SPEED',
+  GET_CURRENT_TEXT_LENGTH = 'GET_CURRENT_TEXT_LENGTH',
 }
 
 export interface Message {
   type: MessageType;
   payload?: Record<string, unknown>;
+  data?: Record<string, unknown>;
 }
 
 export interface MessageResponse {

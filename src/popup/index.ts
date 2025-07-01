@@ -33,6 +33,13 @@ class PopupController {
     voiceSelect: HTMLSelectElement;
     previewBtn: HTMLButtonElement;
     initStatus: HTMLDivElement;
+    speedSlider: HTMLInputElement;
+    speedValue: HTMLSpanElement;
+    speedUpBtn: HTMLButtonElement;
+    speedDownBtn: HTMLButtonElement;
+    presetButtons: NodeListOf<HTMLButtonElement>;
+    readingTimeDiv: HTMLDivElement;
+    timeEstimate: HTMLSpanElement;
   };
 
   private state = {
@@ -55,6 +62,7 @@ class PopupController {
   };
 
   private isPreviewPlaying = false;
+  private currentSpeed = 1.0;
 
   constructor() {
     this.elements = {
@@ -74,6 +82,13 @@ class PopupController {
       voiceSelect: document.getElementById('voiceSelect') as HTMLSelectElement,
       previewBtn: document.getElementById('previewBtn') as HTMLButtonElement,
       initStatus: document.getElementById('initStatus') as HTMLDivElement,
+      speedSlider: document.getElementById('speedSlider') as HTMLInputElement,
+      speedValue: document.getElementById('speedValue') as HTMLSpanElement,
+      speedUpBtn: document.getElementById('speedUpBtn') as HTMLButtonElement,
+      speedDownBtn: document.getElementById('speedDownBtn') as HTMLButtonElement,
+      presetButtons: document.querySelectorAll('.preset-btn') as NodeListOf<HTMLButtonElement>,
+      readingTimeDiv: document.getElementById('readingTime') as HTMLDivElement,
+      timeEstimate: document.getElementById('timeEstimate') as HTMLSpanElement,
     };
 
     this.initialize();
@@ -84,6 +99,7 @@ class PopupController {
     await this.updateTTSState();
     await this.enumerateAndUpdateVoices();
     await this.loadVoiceData();
+    await this.initializeSpeedManager();
     this.setupEventListeners();
     this.updateUI();
   }
@@ -278,6 +294,20 @@ class PopupController {
     }
   }
 
+  private async initializeSpeedManager() {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: MessageType.GET_SPEED_INFO
+      });
+      
+      if (response && response.speedInfo) {
+        this.updateSpeedUI(response.speedInfo);
+      }
+    } catch (error) {
+      debugLog('Error initializing speed manager:', error);
+    }
+  }
+
   private setupEventListeners() {
     this.elements.speakPage.addEventListener('click', () => this.speakCurrentPage());
     this.elements.testSpeak.addEventListener('click', () => this.testSpeech());
@@ -291,6 +321,19 @@ class PopupController {
       chrome.runtime.openOptionsPage();
     });
 
+    // Speed control listeners
+    this.elements.speedSlider.addEventListener('input', this.handleSpeedSliderChange.bind(this));
+    this.elements.speedSlider.addEventListener('change', this.handleSpeedSliderCommit.bind(this));
+    this.elements.speedUpBtn.addEventListener('click', this.handleSpeedUp.bind(this));
+    this.elements.speedDownBtn.addEventListener('click', this.handleSpeedDown.bind(this));
+    
+    this.elements.presetButtons.forEach(btn => {
+      btn.addEventListener('click', this.handlePresetClick.bind(this));
+    });
+    
+    // Keyboard shortcuts
+    document.addEventListener('keydown', this.handleKeyboard.bind(this));
+
     // Listen for TTS state changes and settings updates
     chrome.runtime.onMessage.addListener((message: Message) => {
       if (message.type === MessageType.SETTINGS_UPDATED) {
@@ -300,6 +343,8 @@ class PopupController {
         this.handleTTSStateChange(message.payload || {});
       } else if (message.type === MessageType.VOICE_CHANGED) {
         this.loadVoiceData();
+      } else if (message.type === MessageType.SPEED_CHANGED) {
+        this.initializeSpeedManager();
       }
     });
   }
@@ -767,6 +812,160 @@ class PopupController {
     return previewTexts[langPrefix] || previewTexts['en'];
   }
 
+
+  private updateSpeedUI(speedInfo: any) {
+    this.currentSpeed = speedInfo.current;
+    
+    // Update slider
+    this.elements.speedSlider.value = speedInfo.current.toString();
+    this.elements.speedSlider.min = speedInfo.min.toString();
+    this.elements.speedSlider.max = speedInfo.max.toString();
+    this.elements.speedSlider.step = speedInfo.step.toString();
+    
+    // Update display
+    this.elements.speedValue.textContent = speedInfo.formatted;
+    
+    // Update preset buttons
+    this.updatePresetButtons(speedInfo.current);
+    
+    // Update button states
+    this.elements.speedDownBtn.disabled = speedInfo.current <= speedInfo.min;
+    this.elements.speedUpBtn.disabled = speedInfo.current >= speedInfo.max;
+  }
+
+  private updatePresetButtons(currentSpeed: number) {
+    this.elements.presetButtons.forEach(btn => {
+      const presetSpeed = parseFloat(btn.dataset.speed || '1');
+      if (Math.abs(presetSpeed - currentSpeed) < 0.05) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+  }
+
+  private handleSpeedSliderChange(event: Event) {
+    const speed = parseFloat((event.target as HTMLInputElement).value);
+    this.elements.speedValue.textContent = speed.toFixed(1) + 'x';
+    this.updatePresetButtons(speed);
+    
+    // Update time estimate if text is selected
+    this.updateTimeEstimate(speed);
+  }
+
+  private async handleSpeedSliderCommit(event: Event) {
+    const speed = parseFloat((event.target as HTMLInputElement).value);
+    await this.setSpeed(speed);
+  }
+
+  private async handleSpeedUp() {
+    try {
+      await chrome.runtime.sendMessage({
+        type: MessageType.INCREMENT_SPEED
+      });
+      
+      await this.initializeSpeedManager();
+    } catch (error) {
+      debugLog('Error incrementing speed:', error);
+    }
+  }
+
+  private async handleSpeedDown() {
+    try {
+      await chrome.runtime.sendMessage({
+        type: MessageType.DECREMENT_SPEED
+      });
+      
+      await this.initializeSpeedManager();
+    } catch (error) {
+      debugLog('Error decrementing speed:', error);
+    }
+  }
+
+  private async handlePresetClick(event: Event) {
+    const speed = parseFloat((event.target as HTMLButtonElement).dataset.speed || '1');
+    await this.setSpeed(speed);
+  }
+
+  private async setSpeed(speed: number) {
+    try {
+      await chrome.runtime.sendMessage({
+        type: MessageType.SET_SPEED,
+        data: { speed: speed }
+      });
+      
+      await this.initializeSpeedManager();
+      this.showTemporaryMessage(`Speed set to ${speed}x`);
+    } catch (error) {
+      debugLog('Error setting speed:', error);
+      this.showError('Failed to set speed');
+    }
+  }
+
+  private handleKeyboard(event: KeyboardEvent) {
+    // Speed control shortcuts
+    if (event.key === '+' || event.key === '=') {
+      event.preventDefault();
+      this.handleSpeedUp();
+    } else if (event.key === '-' || event.key === '_') {
+      event.preventDefault();
+      this.handleSpeedDown();
+    } else if (event.key >= '1' && event.key <= '5') {
+      // Number keys for presets
+      const presetIndex = parseInt(event.key) - 1;
+      const presetBtn = this.elements.presetButtons[presetIndex];
+      if (presetBtn) {
+        event.preventDefault();
+        presetBtn.click();
+      }
+    }
+  }
+
+  private async updateTimeEstimate(speed: number | null = null) {
+    try {
+      // Get current selection or playing text
+      const response = await chrome.runtime.sendMessage({
+        type: MessageType.GET_CURRENT_TEXT_LENGTH
+      });
+      
+      if (response && response.length > 0) {
+        const effectiveSpeed = speed || this.currentSpeed;
+        const timeInfo = this.calculateReadingTime(response.length, effectiveSpeed);
+        
+        this.elements.timeEstimate.textContent = timeInfo.formatted;
+        this.elements.readingTimeDiv.style.display = 'block';
+      } else {
+        this.elements.readingTimeDiv.style.display = 'none';
+      }
+    } catch (error) {
+      debugLog('Error updating time estimate:', error);
+    }
+  }
+
+  private calculateReadingTime(characterCount: number, speed: number) {
+    const baseWPM = 150; // Average words per minute
+    const avgWordLength = 5; // Average characters per word
+    
+    const words = characterCount / avgWordLength;
+    const minutes = words / (baseWPM * speed);
+    
+    return {
+      minutes: minutes,
+      formatted: this.formatReadingTime(minutes)
+    };
+  }
+
+  private formatReadingTime(minutes: number): string {
+    if (minutes < 1) {
+      return `${Math.round(minutes * 60)}s`;
+    } else if (minutes < 60) {
+      return `${Math.round(minutes)}m`;
+    } else {
+      const hours = Math.floor(minutes / 60);
+      const mins = Math.round(minutes % 60);
+      return `${hours}h ${mins}m`;
+    }
+  }
 
   private showTemporaryMessage(message: string) {
     const originalText = this.elements.ttsStatus.querySelector('.status-text')!.textContent;

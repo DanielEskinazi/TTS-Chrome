@@ -348,6 +348,7 @@ export class SpeechSynthesizer {
       // Set up event handlers
       utterance.onstart = () => {
         this.currentUtterance = utterance;
+        this.utteranceStartTime = Date.now();
         this.onStart();
       };
       
@@ -736,9 +737,64 @@ export class SpeechSynthesizer {
   setRate(rate: number): boolean {
     if (rate >= 0.1 && rate <= 10) {
       this.settings.rate = rate;
+      
+      // Apply to current utterance if playing
+      if (this.isPlaying && !this.isPaused) {
+        this.applyRateToCurrentUtterance(rate);
+      }
+      
       return true;
     }
     return false;
+  }
+
+  private applyRateToCurrentUtterance(rate: number): void {
+    // Note: Web Speech API doesn't support changing rate mid-utterance
+    // We need to implement a workaround
+    if (this.currentUtterance) {
+      // Store current position
+      const currentPosition = this.estimateCurrentPosition();
+      
+      // Stop current utterance
+      speechSynthesis.cancel();
+      
+      // Resume from position with new rate
+      this.resumeFromPosition(currentPosition, rate);
+    }
+  }
+
+  private utteranceStartTime = 0;
+
+  private estimateCurrentPosition(): number {
+    // Estimate position based on time elapsed and rate
+    if (this.utteranceStartTime && this.currentUtterance) {
+      const elapsed = Date.now() - this.utteranceStartTime;
+      const estimatedCharsSpoken = (elapsed / 1000) * this.settings.rate * 10; // Rough estimate
+      return Math.min(estimatedCharsSpoken, this.currentUtterance.text.length);
+    }
+    return 0;
+  }
+
+  private resumeFromPosition(position: number, rate: number): void {
+    if (this.currentUtterance && position < this.currentUtterance.text.length) {
+      const remainingText = this.currentUtterance.text.substring(position);
+      
+      // Create new utterance with remaining text
+      const utterance = new SpeechSynthesisUtterance(remainingText);
+      utterance.voice = this.settings.voice;
+      utterance.rate = rate;
+      utterance.pitch = this.settings.pitch;
+      utterance.volume = this.settings.volume;
+      
+      // Copy event handlers
+      utterance.onend = this.currentUtterance.onend;
+      utterance.onerror = this.currentUtterance.onerror;
+      
+      // Update current utterance and speak
+      this.currentUtterance = utterance;
+      this.utteranceStartTime = Date.now();
+      speechSynthesis.speak(utterance);
+    }
   }
 
   setPitch(pitch: number): boolean {

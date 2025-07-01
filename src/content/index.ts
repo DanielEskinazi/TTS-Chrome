@@ -481,6 +481,16 @@ class TextSelectionHandler {
         sendResponse({ success: true });
         break;
         
+      case MessageType.CHANGE_SPEED:
+        this.handleSpeedChange(request.data || {});
+        sendResponse({ success: true });
+        break;
+        
+      case MessageType.GET_CURRENT_TEXT_LENGTH:
+        const length = this.getCurrentTextLength();
+        sendResponse({ length: length });
+        break;
+        
       default:
         // Don't handle other message types here
         break;
@@ -587,6 +597,32 @@ class TextSelectionHandler {
     };
     return colors[type] || colors.info;
   }
+  
+  private handleSpeedChange(data: Record<string, unknown>): void {
+    if (this._speechSynthesizer && data.speed) {
+      const success = this._speechSynthesizer.setRate(data.speed as number);
+      
+      if (success) {
+        this.showUserFeedback(`Speed: ${data.speed}x`, 'info');
+      }
+    }
+  }
+  
+  private getCurrentTextLength(): number {
+    if (this._speechSynthesizer) {
+      const state = this._speechSynthesizer.getPlaybackState();
+      if (state.currentText) {
+        return state.currentText.length;
+      }
+    }
+    
+    // Fall back to current selection
+    if (this.selectionText) {
+      return this.selectionText.length;
+    }
+    
+    return 0;
+  }
 
   private handleSelectionError(error: Error, context: string) {
     devLog('Selection error in', context, ':', error);
@@ -612,6 +648,7 @@ class TextSelectionHandler {
     try {
       const text = data.text as string;
       const voice = data.voice as Record<string, unknown> | undefined;
+      const rate = data.rate as number | undefined;
       
       if (!text || typeof text !== 'string') {
         throw new Error('No text provided for speech synthesis');
@@ -646,6 +683,12 @@ class TextSelectionHandler {
         } catch (error) {
           devLog('[TTS] Error getting selected voice from background:', error);
         }
+      }
+      
+      // Set rate if provided
+      if (rate && typeof rate === 'number') {
+        this._speechSynthesizer.setRate(rate);
+        devLog('[TTS] Applied rate:', rate);
       }
 
       await this._speechSynthesizer.speak(text);

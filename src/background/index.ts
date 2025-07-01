@@ -1,5 +1,6 @@
 import { MessageType, Message, MessageResponse } from '@common/types/messages';
 import { VoiceManager, VoiceInfo } from '@common/voice-manager';
+import { SpeedManager } from './speedManager';
 // Temporary debug logging - replace devLog with console.log for debugging
 const debugLog = (...args: unknown[]) => {
   if (process.env.NODE_ENV === 'development') {
@@ -603,9 +604,11 @@ class TTSManager {
   private forceStopAttempts = 0;
   private contextMenuManager: ContextMenuManager | null = null;
   private voiceManager: VoiceManager;
+  private speedManager: SpeedManager;
 
-  constructor(voiceManager: VoiceManager) {
+  constructor(voiceManager: VoiceManager, speedManager: SpeedManager) {
     this.voiceManager = voiceManager;
+    this.speedManager = speedManager;
     this.init();
   }
 
@@ -680,6 +683,30 @@ class TTSManager {
         }
         return { success: false };
         
+      case MessageType.GET_SPEED_INFO:
+        return {
+          speedInfo: this.speedManager.getSpeedInfo()
+        };
+        
+      case MessageType.SET_SPEED:
+        if (request.data && typeof request.data.speed === 'number') {
+          const set = await this.speedManager.setSpeed(request.data.speed);
+          return { success: set };
+        }
+        return { success: false };
+        
+      case MessageType.INCREMENT_SPEED:
+        await this.speedManager.incrementSpeed();
+        return { success: true };
+        
+      case MessageType.DECREMENT_SPEED:
+        await this.speedManager.decrementSpeed();
+        return { success: true };
+        
+      case MessageType.GET_CURRENT_TEXT_LENGTH:
+        const length = await this.getCurrentTextLength();
+        return { length: length };
+        
       default:
         throw new Error('Unknown TTS message type');
     }
@@ -751,11 +778,14 @@ class TTSManager {
 
       // Get voice from data or use default
       const voice = data.voice || this.voiceManager.getSelectedVoice();
+      
+      // Get current speed
+      const speed = this.speedManager.getCurrentSpeed();
 
       // Send speech command to content script
       await chrome.tabs.sendMessage(tabId, {
         type: MessageType.START_SPEECH,
-        payload: { text: text, voice: voice }
+        payload: { text: text, voice: voice, rate: speed }
       });
 
       // Update state immediately for context menu updates
@@ -1116,6 +1146,21 @@ class TTSManager {
       hasTimeout: this.stopTimeout !== null
     };
   }
+  
+  private async getCurrentTextLength(): Promise<number> {
+    // Get length of currently selected or playing text
+    if (this.currentTabId) {
+      try {
+        const response = await chrome.tabs.sendMessage(this.currentTabId, {
+          type: 'GET_CURRENT_TEXT_LENGTH'
+        });
+        return response.length || 0;
+      } catch (error) {
+        debugLog('Error getting text length:', error);
+      }
+    }
+    return 0;
+  }
 }
 
 // Initialize selection manager and context menu manager with error handling
@@ -1123,6 +1168,7 @@ let selectionManager: SelectionManager;
 let contextMenuManager: ContextMenuManager;
 let ttsManager: TTSManager;
 let voiceManager: VoiceManager;
+let speedManager: SpeedManager;
 
 try {
   // Initialize voice manager first
@@ -1131,9 +1177,12 @@ try {
     console.error('Failed to initialize voice manager:', error);
   });
   
+  // Initialize speed manager
+  speedManager = new SpeedManager();
+  
   selectionManager = new SelectionManager();
   contextMenuManager = new ContextMenuManager(selectionManager, voiceManager);
-  ttsManager = new TTSManager(voiceManager);
+  ttsManager = new TTSManager(voiceManager, speedManager);
   
   // Link the managers for bi-directional communication
   selectionManager.setContextMenuManager(contextMenuManager);
@@ -1186,7 +1235,8 @@ chrome.runtime.onMessage.addListener(
       try {
         if ([MessageType.START_TTS, MessageType.STOP_TTS, MessageType.FORCE_STOP_TTS, MessageType.PAUSE_TTS, 
              MessageType.RESUME_TTS, MessageType.TOGGLE_PAUSE_TTS, MessageType.TTS_STATE_CHANGED, MessageType.TTS_ERROR, MessageType.GET_TTS_STATE,
-             MessageType.GET_VOICE_DATA, MessageType.SELECT_VOICE, MessageType.PREVIEW_VOICE, MessageType.UPDATE_VOICE_DATA].includes(message.type)) {
+             MessageType.GET_VOICE_DATA, MessageType.SELECT_VOICE, MessageType.PREVIEW_VOICE, MessageType.UPDATE_VOICE_DATA,
+             MessageType.GET_SPEED_INFO, MessageType.SET_SPEED, MessageType.INCREMENT_SPEED, MessageType.DECREMENT_SPEED, MessageType.GET_CURRENT_TEXT_LENGTH].includes(message.type)) {
           ttsManager.handleMessage(message, sender)
             .then(response => sendResponse({ success: true, data: response }))
             .catch(error => sendResponse({ success: false, error: error.message }));
