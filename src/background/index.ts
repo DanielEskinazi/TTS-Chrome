@@ -683,11 +683,12 @@ class TTSManager {
         }
         return { success: false };
         
-      case MessageType.GET_SPEED_INFO:
+      case MessageType.GET_SPEED_INFO: {
         const speedInfo = await this.speedManager.getSpeedInfo();
         return {
           speedInfo: speedInfo
         };
+      }
         
       case MessageType.SET_SPEED:
         if (request.data && typeof request.data.speed === 'number') {
@@ -748,9 +749,10 @@ class TTSManager {
         
         return { success: true };
         
-      case MessageType.GET_CURRENT_TEXT_LENGTH:
+      case MessageType.GET_CURRENT_TEXT_LENGTH: {
         const length = await this.getCurrentTextLength();
         return { length: length };
+      }
         
       default:
         throw new Error('Unknown TTS message type');
@@ -1215,19 +1217,37 @@ let ttsManager: TTSManager;
 let voiceManager: VoiceManager;
 let speedManager: SpeedManager;
 
-async function initializeExtension() {
+let isInitialized = false;
+let initializationAttempts = 0;
+const maxInitializationAttempts = 3;
+
+async function initializeExtension(retryCount = 0): Promise<boolean> {
+  if (isInitialized) {
+    debugLog('Extension already initialized, skipping');
+    return true;
+  }
+
+  initializationAttempts++;
+  debugLog(`Initializing extension (attempt ${initializationAttempts}/${maxInitializationAttempts})`);
+
   try {
     // Initialize voice manager first
+    debugLog('Initializing VoiceManager...');
     voiceManager = new VoiceManager();
+    
+    // Don't let voice manager failure block the entire initialization
     voiceManager.init().catch(error => {
       console.error('Failed to initialize voice manager:', error);
     });
     
     // Initialize speed manager and wait for it to be ready
+    debugLog('Initializing SpeedManager...');
     speedManager = new SpeedManager();
     await speedManager.waitForInitialization();
-    console.log('SpeedManager initialization completed');
+    debugLog('SpeedManager initialization completed');
     
+    // Initialize core managers
+    debugLog('Initializing core managers...');
     selectionManager = new SelectionManager();
     contextMenuManager = new ContextMenuManager(selectionManager, voiceManager);
     ttsManager = new TTSManager(voiceManager, speedManager);
@@ -1237,16 +1257,116 @@ async function initializeExtension() {
     contextMenuManager.setTTSManager(ttsManager);
     ttsManager.setContextMenuManager(contextMenuManager);
     
+    // Create context menus after all managers are ready
+    debugLog('Creating context menus...');
+    contextMenuManager.createContextMenu();
+    
+    isInitialized = true;
     debugLog('Background script loaded and ready');
-    debugLog('Service worker started successfully');
+    debugLog(`Service worker started successfully (attempt ${initializationAttempts})`);
+    
+    return true;
   } catch (error) {
-    console.error('Failed to initialize background script:', error);
+    console.error(`Failed to initialize background script (attempt ${initializationAttempts}):`, error);
     debugLog('Service worker initialization failed:', error);
+    
+    // Retry if we haven't exceeded max attempts
+    if (retryCount < maxInitializationAttempts - 1) {
+      const retryDelay = Math.min(1000 * Math.pow(2, retryCount), 5000); // Exponential backoff, max 5s
+      debugLog(`Retrying initialization in ${retryDelay}ms...`);
+      
+      setTimeout(() => {
+        initializeExtension(retryCount + 1);
+      }, retryDelay);
+    } else {
+      console.error('Max initialization attempts reached, extension may not function properly');
+    }
+    
+    return false;
   }
 }
 
+// Service worker lifecycle management
+// Note: serviceWorkerRestarted is used for future restart detection logic
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+let serviceWorkerRestarted = false;
+
+// Handle service worker startup (browser starts)
+chrome.runtime.onStartup.addListener(() => {
+  debugLog('Browser started, initializing extension...');
+  serviceWorkerRestarted = true;
+  isInitialized = false;
+  initializationAttempts = 0;
+  initializeExtension();
+});
+
+// Handle service worker suspension/wake (service worker was terminated and restarted)
+chrome.runtime.onSuspend?.addListener(() => {
+  debugLog('Service worker being suspended...');
+  // Clean up any pending operations
+  if (ttsManager) {
+    ttsManager.stopTTS({ source: 'suspension', force: true }).catch(() => {
+      // Ignore errors during suspension
+    });
+  }
+});
+
+// Keep service worker alive by maintaining connections
+let keepAlivePort: chrome.runtime.Port | null = null;
+
+function keepServiceWorkerAlive() {
+  // Create a persistent connection to keep service worker alive
+  if (!keepAlivePort) {
+    keepAlivePort = chrome.runtime.connect({ name: 'keepAlive' });
+    
+    keepAlivePort.onDisconnect.addListener(() => {
+      debugLog('Keep-alive port disconnected, recreating...');
+      keepAlivePort = null;
+      
+      // If we detect disconnection, it means the service worker is restarting
+      if (isInitialized) {
+        debugLog('Service worker restart detected, reinitializing...');
+        serviceWorkerRestarted = true;
+        isInitialized = false;
+        initializationAttempts = 0;
+        initializeExtension();
+      }
+      
+      // Recreate the connection after a delay
+      setTimeout(() => {
+        keepServiceWorkerAlive();
+      }, 1000);
+    });
+  }
+}
+
+// Detect service worker restarts by monitoring context invalidation
+let lastHeartbeat = Date.now();
+
+function heartbeat() {
+  const now = Date.now();
+  const timeSinceLastHeartbeat = now - lastHeartbeat;
+  
+  // If too much time has passed, service worker likely restarted
+  if (timeSinceLastHeartbeat > 35000 && isInitialized) { // Chrome suspends after 30s of inactivity
+    debugLog('Heartbeat gap detected, service worker likely restarted');
+    serviceWorkerRestarted = true;
+    isInitialized = false;
+    initializationAttempts = 0;
+    initializeExtension();
+  }
+  
+  lastHeartbeat = now;
+}
+
+// Set up heartbeat monitoring
+setInterval(heartbeat, 5000); // Check every 5 seconds
+
 // Initialize the extension
-initializeExtension();
+initializeExtension().then(() => {
+  // Start keep-alive mechanism after successful initialization
+  keepServiceWorkerAlive();
+});
 
 // Service worker lifecycle
 chrome.runtime.onInstalled.addListener((details) => {
@@ -1271,7 +1391,25 @@ chrome.runtime.onInstalled.addListener((details) => {
 chrome.runtime.onMessage.addListener(
   (message: Message, sender, sendResponse: (response: MessageResponse) => void) => {
     debugLog('Background received message:', message, 'from:', sender);
-    debugLog('Background received message:', message, 'from:', sender);
+
+    // If extension is not initialized, either wait or trigger initialization
+    if (!isInitialized) {
+      // For critical requests, try to initialize first
+      if (message.type === MessageType.PING || message.type === MessageType.GET_STATE) {
+        // Allow these through even if not fully initialized
+      } else {
+        // For other requests, trigger initialization and return error
+        initializeExtension().catch(error => {
+          console.error('Failed to initialize during message handling:', error);
+        });
+        
+        sendResponse({ 
+          success: false, 
+          error: 'Extension is initializing, please try again in a moment' 
+        });
+        return true;
+      }
+    }
 
     // Try selection manager first (with safety check)
     if (selectionManager) {
@@ -1310,6 +1448,11 @@ chrome.runtime.onMessage.addListener(
 
     // Handle other message types
     switch (message.type) {
+      case MessageType.PING:
+        // Handle ping requests from content scripts for reconnection
+        sendResponse({ success: true, pong: true, initialized: isInitialized });
+        return true;
+
       case MessageType.GET_STATE:
         handleGetState(sendResponse);
         return true; // Will respond asynchronously

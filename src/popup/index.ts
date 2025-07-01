@@ -7,6 +7,17 @@ import {
   debugStateTransition,
 } from '@common/state-validator';
 
+// Speed info interface
+interface SpeedInfo {
+  current: number;
+  default: number;
+  min: number;
+  max: number;
+  step: number;
+  presets: number[];
+  formatted: string;
+}
+
 // Temporary debug logging - replace devLog with console.log for debugging
 const debugLog = (...args: unknown[]) => {
   if (process.env.NODE_ENV === 'development') {
@@ -841,7 +852,7 @@ class PopupController {
   }
 
 
-  private updateSpeedUI(speedInfo: any) {
+  private updateSpeedUI(speedInfo: SpeedInfo) {
     this.currentSpeed = speedInfo.current;
     
     // Update slider

@@ -55,6 +55,9 @@ export enum MessageType {
   SPEED_CHANGED = 'SPEED_CHANGED',
   CHANGE_SPEED = 'CHANGE_SPEED',
   GET_CURRENT_TEXT_LENGTH = 'GET_CURRENT_TEXT_LENGTH',
+  
+  // Connection health
+  PING = 'PING',
 }
 
 export interface Message {
@@ -67,6 +70,9 @@ export interface MessageResponse {
   success: boolean;
   data?: Record<string, unknown>;
   error?: string;
+  pong?: boolean;
+  initialized?: boolean;
+  speedInfo?: Record<string, unknown>;
 }
 
 // Type guards
