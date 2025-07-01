@@ -987,31 +987,63 @@ class ContentScriptController {
         
         // Get voices from the TextSelectionHandler's speech synthesizer
         const speechSynthesizer = this.textSelectionHandler.speechSynthesizer;
-        if (speechSynthesizer && speechSynthesizer.isReady()) {
-          const voices = speechSynthesizer.getAvailableVoices();
+        devLog('SpeechSynthesizer instance:', !!speechSynthesizer);
+        
+        if (speechSynthesizer) {
+          const isReady = speechSynthesizer.isReady();
+          devLog('SpeechSynthesizer ready:', isReady);
           
-          if (voices.length > 0) {
-            // Convert to VoiceInfo format and send to background
-            const voiceInfos = voices.map(voice => ({
-              ...voice,
-              displayName: this.formatVoiceName(voice),
-              languageDisplay: this.formatLanguage(voice.lang),
-              quality: this.determineVoiceQuality(voice),
-              gender: this.guessGender(voice.name),
-              engine: this.determineEngine(voice),
-              voiceURI: voice.name // Add missing property
-            }));
+          if (isReady) {
+            const voices = speechSynthesizer.getAvailableVoices();
+            devLog('Retrieved voices from synthesizer:', voices.length);
             
-            await chrome.runtime.sendMessage({
-              type: MessageType.UPDATE_VOICE_DATA,
-              payload: { voices: voiceInfos }
-            });
-            devLog('Sent voice data to background script:', voiceInfos.length, 'voices');
+            if (voices.length > 0) {
+              // Convert to VoiceInfo format and send to background
+              const voiceInfos = voices.map(voice => {
+                try {
+                  return {
+                    ...voice,
+                    displayName: this.formatVoiceName(voice),
+                    languageDisplay: this.formatLanguage(voice.lang),
+                    quality: this.determineVoiceQuality(voice),
+                    gender: this.guessGender(voice.name),
+                    engine: this.determineEngine(voice),
+                    voiceURI: voice.name // Add missing property
+                  };
+                } catch (formatError) {
+                  devLog('Error formatting voice:', voice.name, formatError);
+                  return voice; // Return original voice if formatting fails
+                }
+              });
+              
+              devLog('Formatted voice data:', voiceInfos.length, 'voices');
+              
+              const response = await chrome.runtime.sendMessage({
+                type: MessageType.UPDATE_VOICE_DATA,
+                payload: { voices: voiceInfos }
+              });
+              
+              devLog('Background response to voice update:', response);
+              devLog('✅ Successfully sent voice data to background script:', voiceInfos.length, 'voices');
+            } else {
+              devLog('⚠️ No voices available from speech synthesizer');
+            }
+          } else {
+            devLog('⚠️ Speech synthesizer not ready yet');
+            // Retry after a delay
+            setTimeout(() => {
+              devLog('Retrying voice enumeration...');
+              this.enumerateAndUpdateVoicesAsync();
+            }, 1000);
           }
+        } else {
+          devLog('❌ Speech synthesizer not available');
         }
+      } else {
+        devLog('❌ speechSynthesis not available in content script context');
       }
     } catch (error) {
-      devLog('Error enumerating voices:', error);
+      devLog('❌ Error enumerating voices in content script:', error);
     }
   }
 
