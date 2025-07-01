@@ -32,6 +32,7 @@ class PopupController {
     forceStopBtn: HTMLButtonElement;
     voiceSelect: HTMLSelectElement;
     previewBtn: HTMLButtonElement;
+    initStatus: HTMLDivElement;
   };
 
   private state = {
@@ -72,6 +73,7 @@ class PopupController {
       forceStopBtn: document.getElementById('forceStopBtn') as HTMLButtonElement,
       voiceSelect: document.getElementById('voiceSelect') as HTMLSelectElement,
       previewBtn: document.getElementById('previewBtn') as HTMLButtonElement,
+      initStatus: document.getElementById('initStatus') as HTMLDivElement,
     };
 
     this.initialize();
@@ -120,14 +122,21 @@ class PopupController {
 
   private async loadVoicesFromSpeechSynthesis(): Promise<VoiceInfo[]> {
     return new Promise((resolve) => {
+      let attempts = 0;
+      const maxAttempts = 20; // 2 seconds max
+      
       const loadVoiceList = () => {
         const voices = speechSynthesis.getVoices();
         
         if (voices.length > 0) {
           const voiceInfos = this.processVoices(voices);
           resolve(voiceInfos);
-        } else {
+        } else if (attempts < maxAttempts) {
+          attempts++;
           setTimeout(loadVoiceList, 100);
+        } else {
+          debugLog('Voice enumeration timeout in popup, resolving with empty array');
+          resolve([]);
         }
       };
       
@@ -230,10 +239,42 @@ class PopupController {
           selectedVoice: response.data.selectedVoice as VoiceInfo | null
         };
         
-        this.populateVoiceDropdown();
+        // If we got empty voices, retry after a delay (content script might still be loading)
+        if (this.voiceData.voices.length === 0) {
+          debugLog('No voices received, retrying in 1 second...');
+          setTimeout(() => this.retryLoadVoiceData(), 1000);
+        } else {
+          this.populateVoiceDropdown();
+        }
       }
     } catch (error) {
       debugLog('Error loading voice data:', error);
+      // Retry on error too
+      setTimeout(() => this.retryLoadVoiceData(), 1000);
+    }
+  }
+
+  private async retryLoadVoiceData() {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: MessageType.GET_VOICE_DATA
+      });
+      
+      if (response && response.success && response.data) {
+        this.voiceData = {
+          voices: response.data.voices as VoiceInfo[] || [],
+          selectedVoice: response.data.selectedVoice as VoiceInfo | null
+        };
+        
+        debugLog('Retry loaded voice data:', this.voiceData.voices.length, 'voices');
+        this.populateVoiceDropdown();
+      } else {
+        debugLog('Retry failed, using fallback voice display');
+        this.populateVoiceDropdown();
+      }
+    } catch (error) {
+      debugLog('Error in voice data retry:', error);
+      this.populateVoiceDropdown();
     }
   }
 
@@ -579,10 +620,15 @@ class PopupController {
     if (this.voiceData.voices.length === 0) {
       const option = document.createElement('option');
       option.value = '';
-      option.textContent = 'No voices available';
+      option.textContent = 'Using system default voice';
       this.elements.voiceSelect.appendChild(option);
+      // Hide loading status - extension is still functional with default voice
+      this.elements.initStatus.style.display = 'none';
       return;
     }
+    
+    // Hide loading status when voices are loaded
+    this.elements.initStatus.style.display = 'none';
     
     // Group voices by language
     const voicesByLang = new Map<string, VoiceInfo[]>();
