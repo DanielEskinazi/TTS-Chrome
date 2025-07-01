@@ -643,6 +643,8 @@ class TextSelectionHandler {
           url: window.location.href,
           userAgent: navigator.userAgent
         }
+      }).catch((reportError) => {
+        devLog('[TTS] Failed to report selection error to background:', reportError);
       });
     } else {
       // For context errors, just log locally and mark extension as disconnected
@@ -727,7 +729,7 @@ class TextSelectionHandler {
     // Safe wrapper for chrome.runtime.sendMessage that handles context invalidation
     if (this.isDisconnected) {
       devLog('[TTS] Skipping message to background - extension disconnected');
-      return Promise.reject(new Error('Extension disconnected'));
+      return Promise.resolve({ success: false, error: 'Extension disconnected' });
     }
 
     return chrome.runtime.sendMessage(message).catch((error) => {
@@ -736,9 +738,11 @@ class TextSelectionHandler {
       
       if (isContextError) {
         this.markAsDisconnected();
-        throw new Error('Extension context invalidated');
+        devLog('[TTS] Silently handling context invalidation error');
+        return { success: false, error: 'Extension context invalidated' };
       }
-      throw error;
+      devLog('[TTS] Non-context error in safeMessageToBackground:', error);
+      return { success: false, error: error.message };
     });
   }
 
@@ -1507,7 +1511,7 @@ class ContentScriptController {
     // Safe wrapper for chrome.runtime.sendMessage that handles context invalidation
     if (this.isDisconnected) {
       devLog('[TTS] Skipping message to background - extension disconnected');
-      return Promise.reject(new Error('Extension disconnected'));
+      return Promise.resolve({ success: false, error: 'Extension disconnected' });
     }
 
     return chrome.runtime.sendMessage(message).catch((error) => {
@@ -1516,9 +1520,11 @@ class ContentScriptController {
       
       if (isContextError) {
         this.markAsDisconnected();
-        throw new Error('Extension context invalidated');
+        devLog('[TTS] Silently handling context invalidation error');
+        return { success: false, error: 'Extension context invalidated' };
       }
-      throw error;
+      devLog('[TTS] Non-context error in safeMessageToBackground:', error);
+      return { success: false, error: error.message };
     });
   }
 }
