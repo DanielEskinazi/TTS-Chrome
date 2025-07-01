@@ -28,12 +28,13 @@ class TextSelectionHandler {
 
   constructor() {
     try {
+      // SpeechSynthesizer now initializes synchronously and is immediately ready
       this._speechSynthesizer = new SpeechSynthesizer();
-      // Initialize asynchronously without blocking
-      this._speechSynthesizer.init().catch(error => {
-        console.warn('SpeechSynthesizer initialization failed:', error);
-        this._speechSynthesizer = null;
-      });
+      
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.log('🚀 SpeechSynthesizer created - TTS ready immediately!');
+      }
     } catch (error) {
       console.warn('SpeechSynthesizer not available:', error);
       // Gracefully handle cases where SpeechSynthesizer is not available (e.g., tests)
@@ -624,9 +625,27 @@ class TextSelectionHandler {
         throw new Error('Speech synthesizer not ready');
       }
 
-      // Set voice if provided
+      // Set voice if provided, or request current selected voice from background
       if (voice && voice.name && typeof voice.name === 'string') {
-        this._speechSynthesizer.setVoice(voice as { name: string });
+        const voiceSet = this._speechSynthesizer.setVoice(voice as { name: string });
+        devLog('[TTS] Applied voice from message:', voice.name, 'Success:', voiceSet);
+      } else {
+        // No voice provided, get the currently selected voice from background
+        try {
+          const voiceResponse = await chrome.runtime.sendMessage({
+            type: MessageType.GET_VOICE_DATA
+          });
+          
+          if (voiceResponse && voiceResponse.success && voiceResponse.data && voiceResponse.data.selectedVoice) {
+            const selectedVoice = voiceResponse.data.selectedVoice;
+            const voiceSet = this._speechSynthesizer.setVoice(selectedVoice);
+            devLog('[TTS] Applied selected voice from background:', selectedVoice.name, 'Success:', voiceSet);
+          } else {
+            devLog('[TTS] No selected voice available, using default');
+          }
+        } catch (error) {
+          devLog('[TTS] Error getting selected voice from background:', error);
+        }
       }
 
       await this._speechSynthesizer.speak(text);
@@ -957,20 +976,28 @@ class ContentScriptController {
   private async initialize() {
     devLog('Content script initialized on:', window.location.href);
 
-    // Notify background that content script is ready
+    // Setup event listeners and styles immediately - don't wait for voice enumeration
+    this.setupEventListeners();
+    this.injectStyles();
+
+    // Notify background that content script is ready (immediately functional)
     chrome.runtime.sendMessage({
       type: MessageType.CONTENT_READY,
       payload: { url: window.location.href },
     });
 
-    // Enumerate and send voice data if we have access to speechSynthesis
-    await this.enumerateAndUpdateVoices();
-
-    this.setupEventListeners();
-    this.injectStyles();
+    // Enumerate voices in background without blocking
+    this.enumerateAndUpdateVoicesAsync().catch(error => {
+      console.warn('Voice enumeration failed, extension still functional:', error);
+    });
+    
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.log('🎯 Content script fully initialized - Extension ready for use!');
+    }
   }
 
-  private async enumerateAndUpdateVoices() {
+  private async enumerateAndUpdateVoicesAsync() {
     try {
       // Check if we have access to speechSynthesis
       if (typeof speechSynthesis !== 'undefined') {
@@ -978,31 +1005,63 @@ class ContentScriptController {
         
         // Get voices from the TextSelectionHandler's speech synthesizer
         const speechSynthesizer = this.textSelectionHandler.speechSynthesizer;
-        if (speechSynthesizer && speechSynthesizer.isReady()) {
-          const voices = speechSynthesizer.getAvailableVoices();
+        devLog('SpeechSynthesizer instance:', !!speechSynthesizer);
+        
+        if (speechSynthesizer) {
+          const isReady = speechSynthesizer.isReady();
+          devLog('SpeechSynthesizer ready:', isReady);
           
-          if (voices.length > 0) {
-            // Convert to VoiceInfo format and send to background
-            const voiceInfos = voices.map(voice => ({
-              ...voice,
-              displayName: this.formatVoiceName(voice),
-              languageDisplay: this.formatLanguage(voice.lang),
-              quality: this.determineVoiceQuality(voice),
-              gender: this.guessGender(voice.name),
-              engine: this.determineEngine(voice),
-              voiceURI: voice.name // Add missing property
-            }));
+          if (isReady) {
+            const voices = speechSynthesizer.getAvailableVoices();
+            devLog('Retrieved voices from synthesizer:', voices.length);
             
-            await chrome.runtime.sendMessage({
-              type: MessageType.UPDATE_VOICE_DATA,
-              payload: { voices: voiceInfos }
-            });
-            devLog('Sent voice data to background script:', voiceInfos.length, 'voices');
+            if (voices.length > 0) {
+              // Convert to VoiceInfo format and send to background
+              const voiceInfos = voices.map(voice => {
+                try {
+                  return {
+                    ...voice,
+                    displayName: this.formatVoiceName(voice),
+                    languageDisplay: this.formatLanguage(voice.lang),
+                    quality: this.determineVoiceQuality(voice),
+                    gender: this.guessGender(voice.name),
+                    engine: this.determineEngine(voice),
+                    voiceURI: voice.name // Add missing property
+                  };
+                } catch (formatError) {
+                  devLog('Error formatting voice:', voice.name, formatError);
+                  return voice; // Return original voice if formatting fails
+                }
+              });
+              
+              devLog('Formatted voice data:', voiceInfos.length, 'voices');
+              
+              const response = await chrome.runtime.sendMessage({
+                type: MessageType.UPDATE_VOICE_DATA,
+                payload: { voices: voiceInfos }
+              });
+              
+              devLog('Background response to voice update:', response);
+              devLog('✅ Successfully sent voice data to background script:', voiceInfos.length, 'voices');
+            } else {
+              devLog('⚠️ No voices available from speech synthesizer');
+            }
+          } else {
+            devLog('⚠️ Speech synthesizer not ready yet');
+            // Retry after a delay
+            setTimeout(() => {
+              devLog('Retrying voice enumeration...');
+              this.enumerateAndUpdateVoicesAsync();
+            }, 1000);
           }
+        } else {
+          devLog('❌ Speech synthesizer not available');
         }
+      } else {
+        devLog('❌ speechSynthesis not available in content script context');
       }
     } catch (error) {
-      devLog('Error enumerating voices:', error);
+      devLog('❌ Error enumerating voices in content script:', error);
     }
   }
 
