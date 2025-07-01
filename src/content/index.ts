@@ -20,6 +20,11 @@ class TextSelectionHandler {
   private selectionInfo: SelectionInfo | null = null;
   private _speechSynthesizer: SpeechSynthesizer | null = null;
   private lastShortcutTime = 0;
+  private contentController: ContentScriptController | null = null;
+
+  public setContentController(controller: ContentScriptController) {
+    this.contentController = controller;
+  }
 
   constructor() {
     try {
@@ -212,7 +217,7 @@ class TextSelectionHandler {
     }
   }
   
-  private async handleStopTTSShortcut() {
+  public async handleStopTTSShortcut() {
     devLog('[Keyboard] Stop TTS shortcut handler called');
     
     const isPlaying = this.isTTSPlaying();
@@ -242,13 +247,23 @@ class TextSelectionHandler {
     devLog('[Keyboard] Read page shortcut handler called');
     
     try {
-      // Send SPEAK_SELECTION message with fullPage flag (same as popup does)
-      await chrome.runtime.sendMessage({
-        type: MessageType.SPEAK_SELECTION,
-        payload: { fullPage: true }
-      });
-      
-      devLog('[Keyboard] Page reading message sent');
+      if (this.contentController) {
+        const isAlreadyActive = this.isTTSPlaying() || this.isTTSPaused();
+        
+        // Call speakFullPage directly on the ContentScriptController
+        await this.contentController.speakFullPage();
+        devLog('[Keyboard] Page reading initiated');
+        
+        // Show appropriate feedback based on whether we restarted or started fresh
+        if (isAlreadyActive) {
+          this.showUserFeedback('🔄 Restarting page reading from beginning...', 'info');
+        } else {
+          this.showUserFeedback('📄 Reading entire page...', 'info');
+        }
+      } else {
+        devLog('[Keyboard] ContentController not available');
+        this.showUserFeedback('Failed to read page - controller not available', 'error');
+      }
     } catch (error) {
       devLog('[Keyboard] Error reading page:', error);
       this.showUserFeedback('Failed to read page', 'error');
@@ -695,7 +710,7 @@ class TextSelectionHandler {
     }
   }
 
-  private isTTSPlaying(): boolean {
+  public isTTSPlaying(): boolean {
     // Check if TTS is currently playing
     if (this._speechSynthesizer) {
       const state = this._speechSynthesizer.getPlaybackState();
@@ -704,7 +719,7 @@ class TextSelectionHandler {
     return false;
   }
 
-  private isTTSPaused(): boolean {
+  public isTTSPaused(): boolean {
     // Check if TTS is currently paused
     if (this._speechSynthesizer) {
       const state = this._speechSynthesizer.getPlaybackState();
@@ -934,6 +949,8 @@ class ContentScriptController {
 
   constructor() {
     this.textSelectionHandler = new TextSelectionHandler();
+    // Set the reference so TextSelectionHandler can call ContentScriptController methods
+    this.textSelectionHandler.setContentController(this);
     this.initialize();
   }
 
@@ -1189,13 +1206,23 @@ class ContentScriptController {
     }
   }
 
-  private async speakFullPage() {
+  public async speakFullPage() {
+    // If TTS is already playing or paused, stop it first to restart from beginning
+    if (this.textSelectionHandler.isTTSPlaying() || this.textSelectionHandler.isTTSPaused()) {
+      devLog('[speakFullPage] TTS already active, stopping to restart from beginning');
+      await this.textSelectionHandler.handleStopTTSShortcut();
+      
+      // Small delay to ensure stop is processed before starting new speech
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
     // Get main content (simplified version)
     const content = document.body.innerText
       .split('\n')
       .filter((line) => line.trim().length > 0)
       .join('. ');
 
+    devLog('[speakFullPage] Starting to read page content, length:', content.length);
     await this.speakText(content);
   }
 
