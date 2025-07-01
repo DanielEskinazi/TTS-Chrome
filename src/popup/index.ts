@@ -294,17 +294,45 @@ class PopupController {
     }
   }
 
-  private async initializeSpeedManager() {
+  private async initializeSpeedManager(retryCount = 0) {
+    const maxRetries = 3;
+    const retryDelay = 1000; // 1 second
+    
     try {
+      debugLog('Popup: Initializing speed manager, attempt:', retryCount + 1);
+      
       const response = await chrome.runtime.sendMessage({
         type: MessageType.GET_SPEED_INFO
       });
       
-      if (response && response.speedInfo) {
+      if (response && response.success !== false && response.speedInfo) {
         this.updateSpeedUI(response.speedInfo);
+        debugLog('Popup: Speed manager initialized successfully');
+      } else if (response && response.error) {
+        // Check if it's an initialization error
+        if (response.error.includes('not yet initialized') && retryCount < maxRetries) {
+          debugLog('Popup: SpeedManager not ready, retrying in', retryDelay, 'ms, attempt:', retryCount + 1);
+          setTimeout(() => {
+            this.initializeSpeedManager(retryCount + 1);
+          }, retryDelay);
+        } else {
+          debugLog('Popup: Speed manager initialization failed after retries:', response.error);
+          this.showSpeedInitializationError(response.error);
+        }
+      } else {
+        debugLog('Popup: Invalid response from speed manager:', response);
+        this.showSpeedInitializationError('Invalid response from background script');
       }
     } catch (error) {
-      debugLog('Error initializing speed manager:', error);
+      debugLog('Popup: Error initializing speed manager:', error);
+      if (retryCount < maxRetries) {
+        debugLog('Popup: Retrying speed manager initialization in', retryDelay, 'ms');
+        setTimeout(() => {
+          this.initializeSpeedManager(retryCount + 1);
+        }, retryDelay);
+      } else {
+        this.showSpeedInitializationError('Failed to communicate with background script');
+      }
     }
   }
 
@@ -965,6 +993,22 @@ class PopupController {
       const mins = Math.round(minutes % 60);
       return `${hours}h ${mins}m`;
     }
+  }
+
+  private showSpeedInitializationError(error: string) {
+    debugLog('Popup: Showing speed initialization error:', error);
+    
+    // Show error in speed value display
+    this.elements.speedValue.textContent = 'Error';
+    this.elements.speedSlider.disabled = true;
+    this.elements.speedUpBtn.disabled = true;
+    this.elements.speedDownBtn.disabled = true;
+    
+    // Add visual indicator
+    this.elements.speedSlider.style.opacity = '0.5';
+    
+    // Show temporary error message
+    this.showTemporaryMessage('Speed control initialization failed: ' + error);
   }
 
   private showTemporaryMessage(message: string) {

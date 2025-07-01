@@ -122,9 +122,9 @@ describe('SpeedManager', () => {
   });
 
   describe('Speed Info', () => {
-    test('should return correct speed info', () => {
+    test('should return correct speed info', async () => {
       speedManager['currentSpeed'] = 1.5;
-      const info = speedManager.getSpeedInfo();
+      const info = await speedManager.getSpeedInfo();
       
       expect(info).toEqual({
         current: 1.5,

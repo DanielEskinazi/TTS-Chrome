@@ -6,41 +6,79 @@ export class SpeedManager {
   private readonly speedStep: number = 0.1;
   private readonly presetSpeeds: number[] = [0.75, 1.0, 1.25, 1.5, 2.0];
   private domainSpeeds: Map<string, number> = new Map();
+  private initializationPromise: Promise<void>;
+  private isInitialized: boolean = false;
 
   constructor() {
-    this.init();
+    this.initializationPromise = this.init();
   }
 
   private async init(): Promise<void> {
-    await this.loadPreferences();
-    console.log('Speed Manager initialized, current speed:', this.currentSpeed);
+    try {
+      await this.loadPreferences();
+      this.isInitialized = true;
+      console.log('Speed Manager initialized successfully, current speed:', this.currentSpeed);
+    } catch (error) {
+      console.error('SpeedManager initialization failed:', error);
+      // Use defaults if initialization fails
+      this.isInitialized = true;
+    }
+  }
+
+  public async waitForInitialization(): Promise<void> {
+    await this.initializationPromise;
+  }
+
+  public isReady(): boolean {
+    return this.isInitialized;
   }
 
   private async loadPreferences(): Promise<void> {
     try {
+      console.log('SpeedManager.loadPreferences: Starting to load from Chrome storage...');
+      
       const stored = await chrome.storage.sync.get(['defaultSpeed', 'domainSpeeds']);
+      console.log('SpeedManager.loadPreferences: Retrieved from storage:', stored);
       
       if (stored.defaultSpeed) {
+        const oldDefault = this.defaultSpeed;
+        const oldCurrent = this.currentSpeed;
+        
         this.defaultSpeed = this.validateSpeed(stored.defaultSpeed);
         this.currentSpeed = this.defaultSpeed;
+        
+        console.log('SpeedManager.loadPreferences: Updated speeds - old default:', oldDefault, 'new default:', this.defaultSpeed, 'old current:', oldCurrent, 'new current:', this.currentSpeed);
+      } else {
+        console.log('SpeedManager.loadPreferences: No defaultSpeed found in storage, using defaults');
       }
       
       if (stored.domainSpeeds) {
         this.domainSpeeds = new Map(stored.domainSpeeds);
+        console.log('SpeedManager.loadPreferences: Loaded domain speeds:', Array.from(this.domainSpeeds.entries()));
+      } else {
+        console.log('SpeedManager.loadPreferences: No domainSpeeds found in storage');
       }
+      
+      console.log('SpeedManager.loadPreferences: Loading completed successfully');
     } catch (error) {
-      console.error('Error loading speed preferences:', error);
+      console.error('SpeedManager.loadPreferences: Error loading speed preferences:', error);
+      throw error; // Re-throw to allow initialization to handle it
     }
   }
 
   private async savePreferences(): Promise<void> {
     try {
-      await chrome.storage.sync.set({
+      const dataToSave = {
         defaultSpeed: this.defaultSpeed,
         domainSpeeds: Array.from(this.domainSpeeds.entries())
-      });
+      };
+      
+      console.log('SpeedManager.savePreferences: saving data:', dataToSave);
+      await chrome.storage.sync.set(dataToSave);
+      console.log('SpeedManager.savePreferences: successfully saved');
     } catch (error) {
-      console.error('Error saving speed preferences:', error);
+      console.error('SpeedManager.savePreferences: Error saving speed preferences:', error);
+      throw error; // Re-throw to allow caller to handle
     }
   }
 
@@ -53,7 +91,10 @@ export class SpeedManager {
   }
 
   async setSpeed(speed: number): Promise<boolean> {
+    await this.waitForInitialization();
+    
     const validSpeed = this.validateSpeed(speed);
+    console.log('SpeedManager.setSpeed called:', speed, 'validated to:', validSpeed, 'current:', this.currentSpeed);
     
     if (validSpeed !== this.currentSpeed) {
       this.currentSpeed = validSpeed;
@@ -65,19 +106,23 @@ export class SpeedManager {
       
       await this.savePreferences();
       this.notifySpeedChange(validSpeed);
+      console.log('SpeedManager.setSpeed completed successfully, new speed:', validSpeed);
       
       return true;
     }
     
+    console.log('SpeedManager.setSpeed: no change needed');
     return false;
   }
 
   async incrementSpeed(): Promise<boolean> {
+    await this.waitForInitialization();
     const newSpeed = Math.round((this.currentSpeed + this.speedStep) * 10) / 10;
     return this.setSpeed(newSpeed);
   }
 
   async decrementSpeed(): Promise<boolean> {
+    await this.waitForInitialization();
     const newSpeed = Math.round((this.currentSpeed - this.speedStep) * 10) / 10;
     return this.setSpeed(newSpeed);
   }
@@ -124,7 +169,7 @@ export class SpeedManager {
     return this.currentSpeed;
   }
 
-  getSpeedInfo(): {
+  async getSpeedInfo(): Promise<{
     current: number;
     default: number;
     min: number;
@@ -132,8 +177,10 @@ export class SpeedManager {
     step: number;
     presets: number[];
     formatted: string;
-  } {
-    return {
+  }> {
+    await this.waitForInitialization();
+    
+    const speedInfo = {
       current: this.currentSpeed,
       default: this.defaultSpeed,
       min: this.minSpeed,
@@ -142,6 +189,9 @@ export class SpeedManager {
       presets: this.presetSpeeds,
       formatted: this.formatSpeed(this.currentSpeed)
     };
+    
+    console.log('SpeedManager.getSpeedInfo returning:', speedInfo);
+    return speedInfo;
   }
 
   private notifySpeedChange(speed: number): void {

@@ -684,8 +684,9 @@ class TTSManager {
         return { success: false };
         
       case MessageType.GET_SPEED_INFO:
+        const speedInfo = await this.speedManager.getSpeedInfo();
         return {
-          speedInfo: this.speedManager.getSpeedInfo()
+          speedInfo: speedInfo
         };
         
       case MessageType.SET_SPEED:
@@ -1170,31 +1171,38 @@ let ttsManager: TTSManager;
 let voiceManager: VoiceManager;
 let speedManager: SpeedManager;
 
-try {
-  // Initialize voice manager first
-  voiceManager = new VoiceManager();
-  voiceManager.init().catch(error => {
-    console.error('Failed to initialize voice manager:', error);
-  });
-  
-  // Initialize speed manager
-  speedManager = new SpeedManager();
-  
-  selectionManager = new SelectionManager();
-  contextMenuManager = new ContextMenuManager(selectionManager, voiceManager);
-  ttsManager = new TTSManager(voiceManager, speedManager);
-  
-  // Link the managers for bi-directional communication
-  selectionManager.setContextMenuManager(contextMenuManager);
-  contextMenuManager.setTTSManager(ttsManager);
-  ttsManager.setContextMenuManager(contextMenuManager);
-  
-  debugLog('Background script loaded and ready');
-  debugLog('Service worker started successfully');
-} catch (error) {
-  console.error('Failed to initialize background script:', error);
-  debugLog('Service worker initialization failed:', error);
+async function initializeExtension() {
+  try {
+    // Initialize voice manager first
+    voiceManager = new VoiceManager();
+    voiceManager.init().catch(error => {
+      console.error('Failed to initialize voice manager:', error);
+    });
+    
+    // Initialize speed manager and wait for it to be ready
+    speedManager = new SpeedManager();
+    await speedManager.waitForInitialization();
+    console.log('SpeedManager initialization completed');
+    
+    selectionManager = new SelectionManager();
+    contextMenuManager = new ContextMenuManager(selectionManager, voiceManager);
+    ttsManager = new TTSManager(voiceManager, speedManager);
+    
+    // Link the managers for bi-directional communication
+    selectionManager.setContextMenuManager(contextMenuManager);
+    contextMenuManager.setTTSManager(ttsManager);
+    ttsManager.setContextMenuManager(contextMenuManager);
+    
+    debugLog('Background script loaded and ready');
+    debugLog('Service worker started successfully');
+  } catch (error) {
+    console.error('Failed to initialize background script:', error);
+    debugLog('Service worker initialization failed:', error);
+  }
 }
+
+// Initialize the extension
+initializeExtension();
 
 // Service worker lifecycle
 chrome.runtime.onInstalled.addListener((details) => {
@@ -1231,8 +1239,16 @@ chrome.runtime.onMessage.addListener(
     }
 
     // Try TTS manager for TTS-related messages
-    if (ttsManager) {
+    if (ttsManager && speedManager) {
       try {
+        // For speed-related messages, ensure SpeedManager is ready
+        if ([MessageType.GET_SPEED_INFO, MessageType.SET_SPEED, MessageType.INCREMENT_SPEED, MessageType.DECREMENT_SPEED].includes(message.type)) {
+          if (!speedManager.isReady()) {
+            sendResponse({ success: false, error: 'SpeedManager not yet initialized' });
+            return true;
+          }
+        }
+        
         if ([MessageType.START_TTS, MessageType.STOP_TTS, MessageType.FORCE_STOP_TTS, MessageType.PAUSE_TTS, 
              MessageType.RESUME_TTS, MessageType.TOGGLE_PAUSE_TTS, MessageType.TTS_STATE_CHANGED, MessageType.TTS_ERROR, MessageType.GET_TTS_STATE,
              MessageType.GET_VOICE_DATA, MessageType.SELECT_VOICE, MessageType.PREVIEW_VOICE, MessageType.UPDATE_VOICE_DATA,
