@@ -110,21 +110,36 @@ class TextSelectionHandler {
   }
 
   private handleKeyDown(event: KeyboardEvent) {
-    // Handle Ctrl+Shift+Space for pause/resume and stop
+    const now = Date.now();
+    
+    // Debounce: Ignore if called within 300ms of last call
+    if (now - this.lastShortcutTime < 300) {
+      devLog('[Keyboard] Ignoring duplicate shortcut (debounced)');
+      return;
+    }
+    
+    // Handle Ctrl+Shift+S (or Cmd+Shift+S on Mac) - Start TTS
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 's') {
+      this.lastShortcutTime = now;
+      devLog('[Keyboard] Start TTS shortcut triggered: Ctrl/Cmd+Shift+S');
+      event.preventDefault();
+      this.handleStartTTSShortcut();
+      return;
+    }
+    
+    // Handle Ctrl+Shift+X (or Cmd+Shift+X on Mac) - Stop TTS  
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'x') {
+      this.lastShortcutTime = now;
+      devLog('[Keyboard] Stop TTS shortcut triggered: Ctrl/Cmd+Shift+X');
+      event.preventDefault();
+      this.handleStopTTSShortcut();
+      return;
+    }
+    
+    // Handle Ctrl+Shift+Space for pause/resume
     if (event.ctrlKey && event.shiftKey && event.key === ' ') {
-      const now = Date.now();
-      
-      // Debounce: Ignore if called within 300ms of last call
-      if (now - this.lastShortcutTime < 300) {
-        devLog('[KEYBOARD-FIX-v4] Ignoring duplicate shortcut (debounced)');
-        event.preventDefault();
-        return;
-      }
-      
       this.lastShortcutTime = now;
       devLog('[KEYBOARD-FIX-v4] TTS keyboard shortcut triggered: Ctrl+Shift+Space');
-      
-      // Always allow TTS shortcuts - they're more important than input conflicts
       event.preventDefault();
       this.handleTTSShortcut();
     }
@@ -147,6 +162,70 @@ class TextSelectionHandler {
       this.togglePauseTTS();
     } else {
       devLog('[KEYBOARD-FIX-v6] TTS is not active - no action taken');
+    }
+  }
+  
+  private async handleStartTTSShortcut() {
+    devLog('[Keyboard] Start TTS shortcut handler called');
+    
+    // Get the current selection
+    const selection = this.safeGetSelection();
+    
+    if (!selection || selection.rangeCount === 0) {
+      devLog('[Keyboard] No text selected');
+      this.showUserFeedback('Please select some text first', 'warning');
+      return;
+    }
+    
+    const selectedText = selection.toString().trim();
+    
+    if (!selectedText) {
+      devLog('[Keyboard] Selected text is empty');
+      this.showUserFeedback('Please select some text first', 'warning');
+      return;
+    }
+    
+    devLog('[Keyboard] Starting TTS with text:', selectedText.substring(0, 50) + '...');
+    
+    // Send start TTS message to background
+    try {
+      await chrome.runtime.sendMessage({
+        type: MessageType.START_TTS,
+        payload: {
+          text: selectedText
+        }
+      });
+      
+      devLog('[Keyboard] TTS start message sent to background');
+    } catch (error) {
+      devLog('[Keyboard] Error starting TTS:', error);
+      this.showUserFeedback('Failed to start TTS', 'error');
+    }
+  }
+  
+  private async handleStopTTSShortcut() {
+    devLog('[Keyboard] Stop TTS shortcut handler called');
+    
+    const isPlaying = this.isTTSPlaying();
+    const isPaused = this.isTTSPaused();
+    
+    if (!isPlaying && !isPaused) {
+      devLog('[Keyboard] TTS is not active, nothing to stop');
+      return;
+    }
+    
+    // Send stop TTS message to background
+    try {
+      await chrome.runtime.sendMessage({
+        type: MessageType.STOP_TTS,
+        payload: {
+          source: 'keyboard'
+        }
+      });
+      
+      devLog('[Keyboard] TTS stop message sent to background');
+    } catch (error) {
+      devLog('[Keyboard] Error stopping TTS:', error);
     }
   }
 
