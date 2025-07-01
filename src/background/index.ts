@@ -692,16 +692,60 @@ class TTSManager {
       case MessageType.SET_SPEED:
         if (request.data && typeof request.data.speed === 'number') {
           const set = await this.speedManager.setSpeed(request.data.speed);
+          
+          // If speed was changed and TTS is active, notify the content script
+          if (set && this.isActive && this.currentTabId) {
+            try {
+              await chrome.tabs.sendMessage(this.currentTabId, {
+                type: MessageType.CHANGE_SPEED,
+                data: { speed: request.data.speed }
+              });
+              console.log('Speed change sent to active tab:', this.currentTabId, 'new speed:', request.data.speed);
+            } catch (error) {
+              console.warn('Could not send speed change to tab:', error);
+            }
+          }
+          
           return { success: set };
         }
         return { success: false };
         
       case MessageType.INCREMENT_SPEED:
         await this.speedManager.incrementSpeed();
+        
+        // If TTS is active, notify the content script of the new speed
+        if (this.isActive && this.currentTabId) {
+          const currentSpeed = this.speedManager.getCurrentSpeed();
+          try {
+            await chrome.tabs.sendMessage(this.currentTabId, {
+              type: MessageType.CHANGE_SPEED,
+              data: { speed: currentSpeed }
+            });
+            console.log('Speed increment sent to active tab:', this.currentTabId, 'new speed:', currentSpeed);
+          } catch (error) {
+            console.warn('Could not send speed increment to tab:', error);
+          }
+        }
+        
         return { success: true };
         
       case MessageType.DECREMENT_SPEED:
         await this.speedManager.decrementSpeed();
+        
+        // If TTS is active, notify the content script of the new speed
+        if (this.isActive && this.currentTabId) {
+          const currentSpeed = this.speedManager.getCurrentSpeed();
+          try {
+            await chrome.tabs.sendMessage(this.currentTabId, {
+              type: MessageType.CHANGE_SPEED,
+              data: { speed: currentSpeed }
+            });
+            console.log('Speed decrement sent to active tab:', this.currentTabId, 'new speed:', currentSpeed);
+          } catch (error) {
+            console.warn('Could not send speed decrement to tab:', error);
+          }
+        }
+        
         return { success: true };
         
       case MessageType.GET_CURRENT_TEXT_LENGTH:
