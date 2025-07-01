@@ -22,7 +22,7 @@ class TextSelectionHandler {
   private lastShortcutTime = 0;
   private contentController: ContentScriptController | null = null;
 
-  public setContentController(controller: ContentScriptController) {
+  public setContentController(controller: ContentScriptController): void {
     this.contentController = controller;
   }
 
@@ -217,7 +217,7 @@ class TextSelectionHandler {
     }
   }
   
-  public async handleStopTTSShortcut() {
+  public async handleStopTTSShortcut(): Promise<void> {
     devLog('[Keyboard] Stop TTS shortcut handler called');
     
     const isPlaying = this.isTTSPlaying();
