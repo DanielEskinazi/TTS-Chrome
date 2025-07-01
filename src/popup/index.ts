@@ -1,6 +1,13 @@
 import { MessageType, Message } from '@common/types/messages';
 import { VoiceInfo } from '@common/voice-manager';
-// Temporary debug logging - replace devLog with console.log for debugging  
+import {
+  TTSState,
+  validateTTSState,
+  fixInvalidState,
+  debugStateTransition,
+} from '@common/state-validator';
+
+// Temporary debug logging - replace devLog with console.log for debugging
 const debugLog = (...args: unknown[]) => {
   if (process.env.NODE_ENV === 'development') {
     // eslint-disable-next-line no-console
@@ -256,7 +263,6 @@ class PopupController {
     });
   }
 
-
   private async speakCurrentPage() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
@@ -271,7 +277,7 @@ class PopupController {
   private async testSpeech() {
     debugLog('Test Speech button clicked');
     debugLog('Test Speech button clicked - starting debug trace');
-    
+
     const text = this.elements.testText.value.trim();
     debugLog('Text to speak:', text);
 
@@ -285,14 +291,14 @@ class PopupController {
     try {
       // Get the active tab and send START_SPEECH message to content script
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
+
       if (!tab.id) {
         throw new Error('No active tab found');
       }
 
       debugLog('Sending START_SPEECH message to content script with text:', text);
       debugLog('Preparing message payload:', { type: MessageType.START_SPEECH, text });
-      
+
       const message: Message = {
         type: MessageType.START_SPEECH,
         payload: { 
@@ -303,7 +309,7 @@ class PopupController {
 
       debugLog('Sending message to content script...');
       const response = await chrome.tabs.sendMessage(tab.id, message);
-      
+
       debugLog('Response from content script:', response);
       debugLog('Full response object:', response);
 
@@ -318,7 +324,8 @@ class PopupController {
       } else {
         console.error('TTS failed:', response ? response.error : 'No response');
         debugLog('TTS failed - response:', response);
-        this.elements.testText.placeholder = 'TTS Error: ' + (response ? response.error : 'No response');
+        this.elements.testText.placeholder =
+          'TTS Error: ' + (response ? response.error : 'No response');
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -330,9 +337,9 @@ class PopupController {
   private async updateTTSState() {
     try {
       const response = await chrome.runtime.sendMessage({
-        type: MessageType.GET_TTS_STATE
+        type: MessageType.GET_TTS_STATE,
       });
-      
+
       if (response && response.success) {
         const state = response.data;
         this.ttsState.isPlaying = state?.isActive || false;
@@ -345,42 +352,57 @@ class PopupController {
 
   private handleTTSStateChange(data: Record<string, unknown>) {
     const { state, playbackState } = data;
-    
-    // Determine if TTS is playing or paused
-    const isPlaying = (state === 'started' || state === 'resumed') && 
-                      playbackState && 
-                      typeof (playbackState as Record<string, unknown>).isPlaying === 'boolean' &&
-                      (playbackState as Record<string, unknown>).isPlaying;
-    
-    const isPaused = state === 'paused' && 
-                     playbackState && 
-                     typeof (playbackState as Record<string, unknown>).isPaused === 'boolean' &&
-                     (playbackState as Record<string, unknown>).isPaused;
-    
-    this.ttsState.isPlaying = Boolean(isPlaying);
-    this.ttsState.isPaused = Boolean(isPaused);
-    
+
+    // Store previous state for debugging
+    const oldState = { ...this.ttsState };
+
+    // Fix: Use playbackState directly instead of state-based logic
+    const playbackData = playbackState as Record<string, unknown>;
+
+    const isPlaying =
+      playbackData && typeof playbackData.isPlaying === 'boolean' && playbackData.isPlaying;
+
+    const isPaused =
+      playbackData && typeof playbackData.isPaused === 'boolean' && playbackData.isPaused;
+
+    // Create new state and validate/fix if needed
+    let newState: TTSState = {
+      isPlaying: Boolean(isPlaying),
+      isPaused: Boolean(isPaused),
+      currentText: this.ttsState.currentText,
+    };
+
+    // Validate and fix state if needed
+    if (!validateTTSState(newState)) {
+      newState = fixInvalidState(newState);
+    }
+
+    // Debug state transition
+    debugStateTransition('Popup', oldState, newState, { state, playbackData });
+
+    this.ttsState.isPlaying = newState.isPlaying;
+    this.ttsState.isPaused = newState.isPaused;
+
     // Update current text if available
     if (playbackState && (playbackState as Record<string, unknown>).currentText) {
       this.ttsState.currentText = (playbackState as Record<string, unknown>).currentText as string;
     }
-    
+
     this.updateTTSUI();
   }
 
   private async handlePlayPause() {
     try {
       this.elements.playPauseBtn.disabled = true;
-      
+
       if (this.ttsState.isPaused || this.ttsState.isPlaying) {
         await chrome.runtime.sendMessage({
           type: MessageType.TOGGLE_PAUSE_TTS,
-          payload: { source: 'popup' }
+          payload: { source: 'popup' },
         });
       }
-      
+
       // UI will be updated via message listener
-      
     } catch (error) {
       debugLog('Error toggling pause:', error);
       this.showError('Failed to toggle pause');
@@ -396,14 +418,13 @@ class PopupController {
     try {
       this.elements.stopBtn.disabled = true;
       this.elements.stopBtn.querySelector('.btn-text')!.textContent = 'Stopping...';
-      
+
       await chrome.runtime.sendMessage({
         type: MessageType.STOP_TTS,
-        payload: { source: 'popup' }
+        payload: { source: 'popup' },
       });
-      
+
       // UI will be updated via message listener
-      
     } catch (error) {
       debugLog('Error stopping TTS:', error);
       this.showError('Failed to stop TTS');
@@ -416,13 +437,12 @@ class PopupController {
     try {
       this.elements.forceStopBtn.disabled = true;
       this.elements.forceStopBtn.querySelector('.btn-text')!.textContent = 'Force Stopping...';
-      
+
       await chrome.runtime.sendMessage({
-        type: MessageType.FORCE_STOP_TTS
+        type: MessageType.FORCE_STOP_TTS,
       });
-      
+
       // UI will be updated via message listener
-      
     } catch (error) {
       debugLog('Error force stopping TTS:', error);
       this.showError('Failed to force stop TTS');
@@ -437,7 +457,7 @@ class PopupController {
       this.elements.ttsStatus.querySelector('.status-text')!.textContent = 'TTS is paused';
       this.elements.ttsStatus.className = 'status-card paused';
       this.updatePlayPauseButton('resume');
-      
+
       // Show current text if available
       if (this.ttsState.currentText) {
         this.showCurrentText();
@@ -446,7 +466,7 @@ class PopupController {
       this.elements.ttsStatus.querySelector('.status-text')!.textContent = 'TTS is playing';
       this.elements.ttsStatus.className = 'status-card playing';
       this.updatePlayPauseButton('pause');
-      
+
       // Show current text if available
       if (this.ttsState.currentText) {
         this.showCurrentText();
@@ -457,7 +477,7 @@ class PopupController {
       this.updatePlayPauseButton('play');
       this.hideCurrentText();
     }
-    
+
     // Update button states
     this.elements.playPauseBtn.disabled = !(this.ttsState.isPlaying || this.ttsState.isPaused);
     this.elements.stopBtn.disabled = !(this.ttsState.isPlaying || this.ttsState.isPaused);
@@ -467,7 +487,7 @@ class PopupController {
   private updatePlayPauseButton(mode: 'play' | 'pause' | 'resume') {
     const iconSpan = this.elements.playPauseBtn.querySelector('.btn-icon') as HTMLSpanElement;
     const textSpan = this.elements.playPauseBtn.querySelector('.btn-text') as HTMLSpanElement;
-    
+
     switch (mode) {
       case 'play':
         iconSpan.textContent = '▶️';
@@ -486,10 +506,11 @@ class PopupController {
 
   private showCurrentText() {
     if (this.ttsState.currentText) {
-      const preview = this.ttsState.currentText.length > 50 
-        ? this.ttsState.currentText.substring(0, 50) + '...'
-        : this.ttsState.currentText;
-      
+      const preview =
+        this.ttsState.currentText.length > 50
+          ? this.ttsState.currentText.substring(0, 50) + '...'
+          : this.ttsState.currentText;
+
       this.elements.textPreview.textContent = preview;
       this.elements.currentText.style.display = 'block';
     }
@@ -503,7 +524,7 @@ class PopupController {
   private showError(message: string) {
     this.elements.ttsStatus.querySelector('.status-text')!.textContent = message;
     this.elements.ttsStatus.className = 'status-card error';
-    
+
     // Reset after 3 seconds
     setTimeout(() => {
       this.updateTTSState();
@@ -515,7 +536,7 @@ class PopupController {
     this.elements.fontSizeValue.textContent = `${this.state.fontSize}px`;
     this.elements.themeValue.textContent =
       this.state.theme.charAt(0).toUpperCase() + this.state.theme.slice(1);
-    
+
     // Update TTS UI
     this.updateTTSUI();
   }

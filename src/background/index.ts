@@ -546,9 +546,10 @@ class ContextMenuManager {
   public updateMenusForTTSState(state: string, _playbackState?: Record<string, unknown>) {
     if (!this.isMenuCreated) return;
 
-    const isPlaying = (state === 'started' || state === 'resumed');
+    // Use consistent logic with proper state mapping
+    const isActive = ['started', 'resumed', 'paused'].includes(state);
+    const isPlaying = isActive && state !== 'paused';
     const isPaused = state === 'paused';
-    const isActive = isPlaying || isPaused;
     const hasSelection = this.selectionManager.hasSelection();
 
     debugLog('[Context-Menu-Debug] updateMenusForTTSState called - state:', state, 'isPlaying:', isPlaying, 'isPaused:', isPaused, 'isActive:', isActive, 'hasSelection:', hasSelection);
