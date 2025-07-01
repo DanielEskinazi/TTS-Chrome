@@ -321,14 +321,15 @@ class PopupController {
         debugLog('Popup: Speed manager initialized successfully');
       } else if (response && response.error) {
         // Check if it's an initialization error
-        if (response.error.includes('not yet initialized') && retryCount < maxRetries) {
+        const errorMessage = response.error || 'Unknown error';
+        if (errorMessage.includes('not yet initialized') && retryCount < maxRetries) {
           debugLog('Popup: SpeedManager not ready, retrying in', retryDelay, 'ms, attempt:', retryCount + 1);
           setTimeout(() => {
             this.initializeSpeedManager(retryCount + 1);
           }, retryDelay);
         } else {
-          debugLog('Popup: Speed manager initialization failed after retries:', response.error);
-          this.showSpeedInitializationError(response.error);
+          debugLog('Popup: Speed manager initialization failed after retries:', errorMessage);
+          this.showSpeedInitializationError(errorMessage);
         }
       } else {
         debugLog('Popup: Invalid response from speed manager:', response);
@@ -894,6 +895,10 @@ class PopupController {
 
   private async handleSpeedSliderCommit(event: Event) {
     const speed = parseFloat((event.target as HTMLInputElement).value);
+    
+    // Update current speed immediately for responsive feedback
+    this.currentSpeed = speed;
+    
     await this.setSpeed(speed);
   }
 
@@ -923,6 +928,12 @@ class PopupController {
 
   private async handlePresetClick(event: Event) {
     const speed = parseFloat((event.target as HTMLButtonElement).dataset.speed || '1');
+    
+    // Immediately update UI for responsive feedback
+    this.updatePresetButtons(speed);
+    this.elements.speedSlider.value = speed.toString();
+    this.elements.speedValue.textContent = speed.toFixed(1) + 'x';
+    
     await this.setSpeed(speed);
   }
 
