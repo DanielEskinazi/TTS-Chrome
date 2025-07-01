@@ -1147,6 +1147,83 @@ try {
   debugLog('Service worker initialization failed:', error);
 }
 
+// Keyboard command handlers
+chrome.commands.onCommand.addListener((command) => {
+  debugLog('Keyboard command received:', command);
+  
+  switch (command) {
+    case 'start_tts':
+      handleStartTTSCommand();
+      break;
+    case 'stop_tts':
+      handleStopTTSCommand();
+      break;
+    default:
+      debugLog('Unknown command:', command);
+  }
+});
+
+async function handleStartTTSCommand() {
+  try {
+    // Get the active tab
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    if (!activeTab || !activeTab.id) {
+      debugLog('No active tab found for keyboard command');
+      return;
+    }
+
+    // Check if the tab URL allows content scripts
+    if (activeTab.url && (activeTab.url.startsWith('chrome://') || 
+        activeTab.url.startsWith('chrome-extension://') || 
+        activeTab.url.startsWith('edge://'))) {
+      debugLog('Cannot use TTS on this page:', activeTab.url);
+      return;
+    }
+
+    // Get selection from the active tab
+    const response = await chrome.tabs.sendMessage(activeTab.id, {
+      type: MessageType.GET_SELECTION
+    }).catch(error => {
+      debugLog('Could not get selection from tab:', error);
+      return null;
+    });
+
+    if (!response || !response.hasSelection || !response.text) {
+      debugLog('No text selected for keyboard TTS command');
+      // Could show a notification here
+      return;
+    }
+
+    // Start TTS using the existing TTS manager
+    if (ttsManager) {
+      await ttsManager.handleMessage({
+        type: MessageType.START_TTS,
+        payload: {
+          text: response.text,
+          voice: voiceManager.getSelectedVoice(),
+          tabId: activeTab.id
+        }
+      }, { tab: activeTab } as chrome.runtime.MessageSender);
+      
+      debugLog('TTS started via keyboard shortcut');
+    }
+  } catch (error) {
+    debugLog('Error handling start TTS keyboard command:', error);
+  }
+}
+
+async function handleStopTTSCommand() {
+  try {
+    if (ttsManager) {
+      await ttsManager.stopTTS({ source: 'keyboard' });
+      debugLog('TTS stopped via keyboard shortcut');
+    }
+  } catch (error) {
+    debugLog('Error handling stop TTS keyboard command:', error);
+  }
+}
+
 // Service worker lifecycle
 chrome.runtime.onInstalled.addListener((details) => {
   debugLog('Extension installed:', details.reason);

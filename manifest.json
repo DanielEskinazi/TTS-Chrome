@@ -22,5 +22,21 @@
       "run_at": "document_idle"
     }
   ],
-  "options_page": "options.html"
+  "options_page": "options.html",
+  "commands": {
+    "start_tts": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Start text-to-speech for selected text"
+    },
+    "stop_tts": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+X",
+        "mac": "Command+Shift+X"
+      },
+      "description": "Stop text-to-speech playback"
+    }
+  }
 }
