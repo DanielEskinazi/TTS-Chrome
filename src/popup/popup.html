@@ -22,6 +22,18 @@
         </div>
       </section>
       
+      <section class="voice-selection">
+        <label for="voiceSelect">Voice:</label>
+        <div class="voice-controls">
+          <select id="voiceSelect" class="voice-dropdown">
+            <option value="">Loading voices...</option>
+          </select>
+          <button id="previewBtn" class="btn btn-preview" title="Preview voice">
+            🔊
+          </button>
+        </div>
+      </section>
+      
       <section class="tts-controls">
         <button id="playPauseBtn" class="btn btn-play-pause" disabled>
           <span class="btn-icon">▶️</span>
@@ -67,13 +79,7 @@
       <section class="keyboard-shortcuts">
         <h3>Keyboard Shortcuts:</h3>
         <div class="shortcut-item">
-          <kbd>Space</kbd> - Pause/Resume TTS (when active)
-        </div>
-        <div class="shortcut-item">
-          <kbd>Escape</kbd> - Stop TTS (when playing)
-        </div>
-        <div class="shortcut-item">
-          <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> - Stop TTS
+          <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> - Pause/Resume TTS (when playing) or Stop TTS (when paused)
         </div>
       </section>
     </main>
