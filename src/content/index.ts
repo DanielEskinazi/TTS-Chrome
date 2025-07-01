@@ -123,28 +123,28 @@ class TextSelectionHandler {
       return;
     }
     
-    // Handle Ctrl+Shift+S (or Cmd+Shift+S on Mac) - Start TTS
-    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 's') {
+    // Handle Ctrl+Shift+S - Start TTS
+    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 's') {
       this.lastShortcutTime = now;
-      devLog('[Keyboard] Start TTS shortcut triggered: Ctrl/Cmd+Shift+S');
+      devLog('[Keyboard] Start TTS shortcut triggered: Ctrl+Shift+S');
       event.preventDefault();
       this.handleStartTTSShortcut();
       return;
     }
     
-    // Handle Ctrl+Shift+X (or Cmd+Shift+X on Mac) - Stop TTS  
-    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'x') {
+    // Handle Ctrl+Shift+X - Stop TTS  
+    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'x') {
       this.lastShortcutTime = now;
-      devLog('[Keyboard] Stop TTS shortcut triggered: Ctrl/Cmd+Shift+X');
+      devLog('[Keyboard] Stop TTS shortcut triggered: Ctrl+Shift+X');
       event.preventDefault();
       this.handleStopTTSShortcut();
       return;
     }
     
-    // Handle Ctrl+Shift+R (or Cmd+Shift+R on Mac) - Read entire page
-    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'r') {
+    // Handle Ctrl+Shift+R - Read entire page
+    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'r') {
       this.lastShortcutTime = now;
-      devLog('[Keyboard] Read page shortcut triggered: Ctrl/Cmd+Shift+R');
+      devLog('[Keyboard] Read page shortcut triggered: Ctrl+Shift+R');
       event.preventDefault();
       this.handleReadPageShortcut();
       return;
