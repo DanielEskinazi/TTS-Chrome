@@ -50,6 +50,7 @@ export class SpeechSynthesizer {
   private pausePosition: PausePosition | null = null;
   private pausedText: string | null = null;
   private currentChunkIndex = 0;
+  private lastToggleTime = 0; // For debouncing pause/resume operations
   private settings: SpeechSettings = {
     rate: 1.0,
     pitch: 1.0,
@@ -58,7 +59,8 @@ export class SpeechSynthesizer {
   };
 
   constructor() {
-    this.init();
+    // Don't auto-initialize in constructor to avoid blocking
+    // Call init() manually when ready
   }
 
   async init(): Promise<void> {
@@ -367,8 +369,15 @@ export class SpeechSynthesizer {
   }
 
   pause(): boolean {
+    // Enhanced API state logging
     // eslint-disable-next-line no-console
-    console.log('[TTS-Debug] Pause called - isPlaying:', this.isPlaying, 'isPaused:', this.isPaused, 'speechSynthesis.speaking:', speechSynthesis.speaking);
+    console.log('[TTS-Debug] Pause called - API State:', {
+      isPlaying: this.isPlaying,
+      isPaused: this.isPaused,
+      'speechSynthesis.speaking': speechSynthesis.speaking,
+      'speechSynthesis.paused': speechSynthesis.paused,
+      'speechSynthesis.pending': speechSynthesis.pending
+    });
     
     // Check if speech synthesis is actually speaking
     if (!speechSynthesis.speaking) {
@@ -384,6 +393,28 @@ export class SpeechSynthesizer {
         
         // Pause speech synthesis
         speechSynthesis.pause();
+        
+        // Add small delay and validate pause worked
+        setTimeout(() => {
+          // eslint-disable-next-line no-console
+          console.log('[TTS-Debug] Post-pause API state:', {
+            'speechSynthesis.speaking': speechSynthesis.speaking,
+            'speechSynthesis.paused': speechSynthesis.paused,
+            'speechSynthesis.pending': speechSynthesis.pending
+          });
+          
+          // Check if pause actually worked
+          if (!speechSynthesis.paused && speechSynthesis.speaking) {
+            // eslint-disable-next-line no-console
+            console.warn('[TTS-Debug] WARNING: Pause may have failed - speechSynthesis.paused is still false');
+            // Try pause again
+            speechSynthesis.pause();
+            setTimeout(() => {
+              // eslint-disable-next-line no-console
+              console.log('[TTS-Debug] Retry pause result - speechSynthesis.paused:', speechSynthesis.paused);
+            }, 50);
+          }
+        }, 50);
         
         this.isPaused = true;
         this.notifyPlaybackState('paused');
@@ -407,13 +438,51 @@ export class SpeechSynthesizer {
   }
 
   resume(): boolean {
+    // Enhanced API state logging
     // eslint-disable-next-line no-console
-    console.log('[TTS-Debug] Resume called - isPaused:', this.isPaused, 'speechSynthesis.paused:', speechSynthesis.paused);
+    console.log('[TTS-Debug] Resume called - API State:', {
+      isPaused: this.isPaused,
+      'speechSynthesis.speaking': speechSynthesis.speaking,
+      'speechSynthesis.paused': speechSynthesis.paused,
+      'speechSynthesis.pending': speechSynthesis.pending
+    });
+    
+    // Check for API state mismatch
+    if (this.isPaused && !speechSynthesis.paused) {
+      // eslint-disable-next-line no-console
+      console.warn('[TTS-Debug] WARNING: State mismatch - extension thinks paused but speechSynthesis.paused is false');
+      // Try to recover by assuming speech is actually playing
+      this.isPaused = false;
+      this.notifyPlaybackState('resumed');
+      return true;
+    }
     
     if (this.isPaused && speechSynthesis.paused) {
       try {
         // Resume speech synthesis
         speechSynthesis.resume();
+        
+        // Add small delay and validate resume worked
+        setTimeout(() => {
+          // eslint-disable-next-line no-console
+          console.log('[TTS-Debug] Post-resume API state:', {
+            'speechSynthesis.speaking': speechSynthesis.speaking,
+            'speechSynthesis.paused': speechSynthesis.paused,
+            'speechSynthesis.pending': speechSynthesis.pending
+          });
+          
+          // Check if resume actually worked
+          if (speechSynthesis.paused) {
+            // eslint-disable-next-line no-console
+            console.warn('[TTS-Debug] WARNING: Resume may have failed - speechSynthesis.paused is still true');
+            // Try resume again
+            speechSynthesis.resume();
+            setTimeout(() => {
+              // eslint-disable-next-line no-console
+              console.log('[TTS-Debug] Retry resume result - speechSynthesis.paused:', speechSynthesis.paused);
+            }, 50);
+          }
+        }, 50);
         
         this.isPaused = false;
         this.notifyPlaybackState('resumed');
@@ -449,8 +518,28 @@ export class SpeechSynthesizer {
   }
 
   togglePause(): boolean {
+    const now = Date.now();
+    const timeSinceLastToggle = now - this.lastToggleTime;
+    
+    // Debounce: prevent rapid successive calls (minimum 100ms between operations)
+    if (timeSinceLastToggle < 100) {
+      // eslint-disable-next-line no-console
+      console.log('[TTS-Debug] TogglePause debounced - too soon since last toggle:', timeSinceLastToggle + 'ms');
+      return false;
+    }
+    
+    this.lastToggleTime = now;
+    
+    // Enhanced API state logging
     // eslint-disable-next-line no-console
-    console.log('[TTS-Debug] TogglePause called - isPaused:', this.isPaused, 'isPlaying:', this.isPlaying);
+    console.log('[TTS-Debug] TogglePause called - Current State:', {
+      isPaused: this.isPaused,
+      isPlaying: this.isPlaying,
+      'speechSynthesis.speaking': speechSynthesis.speaking,
+      'speechSynthesis.paused': speechSynthesis.paused,
+      'speechSynthesis.pending': speechSynthesis.pending,
+      timeSinceLastToggle: timeSinceLastToggle + 'ms'
+    });
     
     if (this.isPaused) {
       return this.resume();
@@ -582,13 +671,18 @@ export class SpeechSynthesizer {
     }));
   }
 
-  setVoice(voiceName: string): boolean {
+  setVoice(voiceNameOrInfo: string | { name: string }): boolean {
+    const voiceName = typeof voiceNameOrInfo === 'string' ? voiceNameOrInfo : voiceNameOrInfo.name;
     const voice = this.availableVoices.find(v => v.name === voiceName);
     if (voice) {
       this.settings.voice = voice;
       return true;
     }
     return false;
+  }
+
+  getVoice(): SpeechSynthesisVoice | null {
+    return this.settings.voice;
   }
 
   setRate(rate: number): boolean {

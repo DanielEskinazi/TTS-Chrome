@@ -18,15 +18,21 @@ class TextSelectionHandler {
   private selectionText: string = '';
   private isSelectionActive: boolean = false;
   private selectionInfo: SelectionInfo | null = null;
-  private speechSynthesizer: SpeechSynthesizer | null = null;
+  private _speechSynthesizer: SpeechSynthesizer | null = null;
+  private lastShortcutTime = 0;
 
   constructor() {
     try {
-      this.speechSynthesizer = new SpeechSynthesizer();
+      this._speechSynthesizer = new SpeechSynthesizer();
+      // Initialize asynchronously without blocking
+      this._speechSynthesizer.init().catch(error => {
+        console.warn('SpeechSynthesizer initialization failed:', error);
+        this._speechSynthesizer = null;
+      });
     } catch (error) {
       console.warn('SpeechSynthesizer not available:', error);
       // Gracefully handle cases where SpeechSynthesizer is not available (e.g., tests)
-      this.speechSynthesizer = null;
+      this._speechSynthesizer = null;
     }
     this.init();
   }
@@ -58,7 +64,7 @@ class TextSelectionHandler {
     devLog('TTS Text Selection Handler initialized');
     if (process.env.NODE_ENV === 'development') {
       // eslint-disable-next-line no-console
-      console.log('🔊 TTS Text Selection Handler initialized - Extension is working!');
+      console.log('🔊 TTS Text Selection Handler initialized - Extension is working! [VERSION: KEYBOARD-FIX-v6]');
     }
   }
 
@@ -104,38 +110,44 @@ class TextSelectionHandler {
   }
 
   private handleKeyDown(event: KeyboardEvent) {
-    // Handle Space bar for pause/resume when TTS is active
-    if (event.key === ' ' && this.isTTSActive()) {
-      if (!this.isInputElement(event.target as Element)) {
+    // Handle Ctrl+Shift+Space for pause/resume and stop
+    if (event.ctrlKey && event.shiftKey && event.key === ' ') {
+      const now = Date.now();
+      
+      // Debounce: Ignore if called within 300ms of last call
+      if (now - this.lastShortcutTime < 300) {
+        devLog('[KEYBOARD-FIX-v4] Ignoring duplicate shortcut (debounced)');
         event.preventDefault();
-        this.togglePauseTTS();
+        return;
       }
-    }
-    
-    // Handle Escape key to stop TTS
-    if (event.key === 'Escape') {
-      this.handleEscapeKey(event);
-    }
-    
-    // Handle Ctrl+Shift+S to stop TTS
-    if (event.ctrlKey && event.shiftKey && event.key === 'S') {
+      
+      this.lastShortcutTime = now;
+      devLog('[KEYBOARD-FIX-v4] TTS keyboard shortcut triggered: Ctrl+Shift+Space');
+      
+      // Always allow TTS shortcuts - they're more important than input conflicts
       event.preventDefault();
-      this.handleStopShortcut();
+      this.handleTTSShortcut();
     }
   }
 
-  private handleEscapeKey(event: KeyboardEvent) {
-    // Only handle escape if TTS is playing
-    if (this.isTTSPlaying()) {
-      event.preventDefault();
-      event.stopPropagation();
-      this.stopTTS();
+  private handleTTSShortcut() {
+    // Handle Ctrl+Shift+Space: pause/resume toggle
+    const isPlaying = this.isTTSPlaying();
+    const isPaused = this.isTTSPaused();
+    
+    devLog('[KEYBOARD-FIX-v6] TTS shortcut handler called:', {
+      isPlaying,
+      isPaused,
+      speechSynthesizerAvailable: !!this._speechSynthesizer
+    });
+    
+    if (isPlaying || isPaused) {
+      // If TTS is active (playing or paused), toggle pause/resume
+      devLog('[KEYBOARD-FIX-v6] TTS is active - toggling pause/resume');
+      this.togglePauseTTS();
+    } else {
+      devLog('[KEYBOARD-FIX-v6] TTS is not active - no action taken');
     }
-  }
-
-  private handleStopShortcut() {
-    // Always handle the stop shortcut
-    this.stopTTS();
   }
 
   private setupKeyboardShortcuts() {
@@ -145,19 +157,9 @@ class TextSelectionHandler {
       payload: {
         shortcuts: [
           {
-            key: 'Space',
-            description: 'Pause/Resume TTS playback',
+            key: 'Ctrl+Shift+Space',
+            description: 'Pause/Resume TTS (when playing) or Stop TTS (when paused)',
             condition: 'tts-active'
-          },
-          {
-            key: 'Escape',
-            description: 'Stop TTS playback',
-            condition: 'tts-playing'
-          },
-          {
-            key: 'Ctrl+Shift+S',
-            description: 'Stop TTS playback',
-            condition: 'always'
           }
         ]
       }
@@ -167,14 +169,22 @@ class TextSelectionHandler {
   }
 
   private isInputElement(element: Element): boolean {
-    const inputTags = ['INPUT', 'TEXTAREA', 'SELECT'];
-    return inputTags.includes(element.tagName) || 
-           element.getAttribute('contenteditable') === 'true';
+    // Only block the shortcut for actual text input elements where the user is typing
+    const isContentEditable = element.getAttribute('contenteditable') === 'true';
+    
+    // For INPUT elements, only block if it's a text input type
+    if (element.tagName === 'INPUT') {
+      const inputType = (element as HTMLInputElement).type.toLowerCase();
+      const textInputTypes = ['text', 'password', 'email', 'search', 'url', 'tel'];
+      return textInputTypes.includes(inputType);
+    }
+    
+    return element.tagName === 'TEXTAREA' || isContentEditable;
   }
 
   private isTTSActive(): boolean {
-    if (this.speechSynthesizer) {
-      const state = this.speechSynthesizer.getPlaybackState();
+    if (this._speechSynthesizer) {
+      const state = this._speechSynthesizer.getPlaybackState();
       return state.isPlaying || state.isPaused;
     }
     return false;
@@ -182,24 +192,19 @@ class TextSelectionHandler {
 
   private async togglePauseTTS(): Promise<void> {
     try {
-      // Toggle pause locally
-      if (this.speechSynthesizer) {
-        const toggled = this.speechSynthesizer.togglePause();
+      // Toggle pause locally only (don't notify background to avoid double toggle)
+      if (this._speechSynthesizer) {
+        devLog('[KEYBOARD-FIX-v5] Calling togglePause on SpeechSynthesizer');
+        const toggled = this._speechSynthesizer.togglePause();
         
         if (toggled) {
-          // Notify background script
-          await chrome.runtime.sendMessage({
-            type: MessageType.TOGGLE_PAUSE_TTS,
-            payload: {
-              source: 'keyboard',
-              timestamp: Date.now()
-            }
-          });
-          
           // Show feedback
-          const state = this.speechSynthesizer.getPlaybackState();
+          const state = this._speechSynthesizer.getPlaybackState();
           const message = state.isPaused ? '⏸️ Speech paused' : '▶️ Speech resumed';
           this.showUserFeedback(message, 'info');
+          devLog('[KEYBOARD-FIX-v5] Toggle successful, new state:', state.isPaused ? 'PAUSED' : 'PLAYING');
+        } else {
+          devLog('[KEYBOARD-FIX-v5] Toggle failed');
         }
       }
     } catch (error) {
@@ -349,6 +354,11 @@ class TextSelectionHandler {
         sendResponse(pauseState);
         break;
       }
+
+      case MessageType.PREVIEW_VOICE:
+        this.handlePreviewVoice(request.payload || {});
+        sendResponse({ success: true });
+        break;
         
       default:
         // Don't handle other message types here
@@ -480,20 +490,26 @@ class TextSelectionHandler {
   private async handleStartSpeech(data: Record<string, unknown>): Promise<void> {
     try {
       const text = data.text as string;
+      const voice = data.voice as Record<string, unknown> | undefined;
       
       if (!text || typeof text !== 'string') {
         throw new Error('No text provided for speech synthesis');
       }
 
-      if (!this.speechSynthesizer) {
+      if (!this._speechSynthesizer) {
         throw new Error('Speech synthesizer not available');
       }
 
-      if (!this.speechSynthesizer.isReady()) {
+      if (!this._speechSynthesizer.isReady()) {
         throw new Error('Speech synthesizer not ready');
       }
 
-      await this.speechSynthesizer.speak(text);
+      // Set voice if provided
+      if (voice && voice.name && typeof voice.name === 'string') {
+        this._speechSynthesizer.setVoice(voice as { name: string });
+      }
+
+      await this._speechSynthesizer.speak(text);
       
       this.showUserFeedback('🔊 Speech started', 'success');
       
@@ -505,12 +521,12 @@ class TextSelectionHandler {
 
   private handleStopSpeech(data: Record<string, unknown> = {}): void {
     try {
-      if (!this.speechSynthesizer) {
+      if (!this._speechSynthesizer) {
         this.showUserFeedback('⚠️ Speech synthesizer not available', 'warning');
         return;
       }
       
-      this.speechSynthesizer.stop();
+      this._speechSynthesizer.stop();
       
       // Clear any local timers or intervals
       this.clearTTSResources();
@@ -532,8 +548,8 @@ class TextSelectionHandler {
   private handleForceStop(): void {
     // Force stop for emergency situations
     try {
-      if (this.speechSynthesizer) {
-        this.speechSynthesizer.stop();
+      if (this._speechSynthesizer) {
+        this._speechSynthesizer.stop();
       }
       
       // Force clear the speech synthesis queue
@@ -561,8 +577,8 @@ class TextSelectionHandler {
       });
       
       // Also stop local speech synthesis
-      if (this.speechSynthesizer) {
-        this.speechSynthesizer.stop();
+      if (this._speechSynthesizer) {
+        this._speechSynthesizer.stop();
       }
       
       // Show feedback
@@ -576,9 +592,18 @@ class TextSelectionHandler {
 
   private isTTSPlaying(): boolean {
     // Check if TTS is currently playing
-    if (this.speechSynthesizer) {
-      const state = this.speechSynthesizer.getPlaybackState();
+    if (this._speechSynthesizer) {
+      const state = this._speechSynthesizer.getPlaybackState();
       return state.isPlaying && !state.isPaused;
+    }
+    return false;
+  }
+
+  private isTTSPaused(): boolean {
+    // Check if TTS is currently paused
+    if (this._speechSynthesizer) {
+      const state = this._speechSynthesizer.getPlaybackState();
+      return state.isPlaying && state.isPaused;
     }
     return false;
   }
@@ -605,11 +630,11 @@ class TextSelectionHandler {
 
   private handlePauseSpeech(): void {
     try {
-      if (!this.speechSynthesizer) {
+      if (!this._speechSynthesizer) {
         this.showUserFeedback('⚠️ Speech synthesizer not available', 'warning');
         return;
       }
-      if (this.speechSynthesizer.pause()) {
+      if (this._speechSynthesizer.pause()) {
         this.showUserFeedback('⏸️ Speech paused', 'info');
       } else {
         this.showUserFeedback('⚠️ Speech not playing', 'warning');
@@ -622,11 +647,11 @@ class TextSelectionHandler {
 
   private handleResumeSpeech(): void {
     try {
-      if (!this.speechSynthesizer) {
+      if (!this._speechSynthesizer) {
         this.showUserFeedback('⚠️ Speech synthesizer not available', 'warning');
         return;
       }
-      if (this.speechSynthesizer.resume()) {
+      if (this._speechSynthesizer.resume()) {
         this.showUserFeedback('▶️ Speech resumed', 'info');
       } else {
         this.showUserFeedback('⚠️ Speech not paused', 'warning');
@@ -639,18 +664,18 @@ class TextSelectionHandler {
 
   private handleTogglePauseSpeech(): Record<string, unknown> {
     try {
-      if (!this.speechSynthesizer) {
+      if (!this._speechSynthesizer) {
         this.showUserFeedback('⚠️ Speech synthesizer not available', 'warning');
         return { success: false, isPaused: false, error: 'Speech synthesizer not available' };
       }
       
       // eslint-disable-next-line no-console
-      console.log('[TTS-Debug] Toggle pause called, current state:', this.speechSynthesizer.getPlaybackState());
+      console.log('[TTS-Debug] Toggle pause called, current state:', this._speechSynthesizer.getPlaybackState());
       
-      const toggled = this.speechSynthesizer.togglePause();
+      const toggled = this._speechSynthesizer.togglePause();
       
       if (toggled) {
-        const state = this.speechSynthesizer.getPlaybackState();
+        const state = this._speechSynthesizer.getPlaybackState();
         const message = state.isPaused ? '⏸️ Speech paused' : '▶️ Speech resumed';
         this.showUserFeedback(message, 'info');
         // eslint-disable-next-line no-console
@@ -667,6 +692,59 @@ class TextSelectionHandler {
       this.showUserFeedback('❌ Error toggling pause', 'error');
       return { success: false, isPaused: false, error: (error as Error).message };
     }
+  }
+
+  private async handlePreviewVoice(data: Record<string, unknown>): Promise<void> {
+    try {
+      const voice = data.voice as Record<string, unknown> | undefined;
+      
+      if (!voice || !voice.name || typeof voice.name !== 'string') {
+        throw new Error('No voice provided for preview');
+      }
+
+      if (!this._speechSynthesizer) {
+        throw new Error('Speech synthesizer not available');
+      }
+
+      // Get preview text based on language
+      const lang = voice.lang as string || 'en';
+      const previewText = this.getPreviewText(lang);
+
+      // Temporarily set the voice for preview
+      const previousVoice = this._speechSynthesizer.getVoice();
+      this._speechSynthesizer.setVoice(voice as { name: string });
+
+      // Speak the preview text
+      await this._speechSynthesizer.speak(previewText);
+
+      // Restore previous voice if it exists
+      if (previousVoice) {
+        this._speechSynthesizer.setVoice(previousVoice);
+      }
+
+      this.showUserFeedback('🔊 Voice preview', 'info');
+      
+    } catch (error) {
+      console.error('Error previewing voice:', error);
+      this.showUserFeedback('❌ Voice preview error: ' + (error as Error).message, 'error');
+    }
+  }
+
+  private getPreviewText(lang: string): string {
+    const previewTexts: Record<string, string> = {
+      'en': 'Hello! This is a preview of the selected voice. The quick brown fox jumps over the lazy dog.',
+      'es': '¡Hola! Esta es una vista previa de la voz seleccionada. El rápido zorro marrón salta sobre el perro perezoso.',
+      'fr': 'Bonjour! Ceci est un aperçu de la voix sélectionnée. Le rapide renard brun saute par-dessus le chien paresseux.',
+      'de': 'Hallo! Dies ist eine Vorschau der ausgewählten Stimme. Der schnelle braune Fuchs springt über den faulen Hund.',
+      'it': 'Ciao! Questa è un\'anteprima della voce selezionata. La rapida volpe marrone salta sopra il cane pigro.',
+      'pt': 'Olá! Esta é uma prévia da voz selecionada. A rápida raposa marrom pula sobre o cão preguiçoso.',
+      'ja': 'こんにちは！これは選択された音声のプレビューです。素早い茶色のキツネが怠け者の犬を飛び越えます。',
+      'ko': '안녕하세요! 선택한 음성의 미리보기입니다. 빠른 갈색 여우가 게으른 개를 뛰어넘습니다.',
+      'zh': '你好！这是所选语音的预览。敏捷的棕色狐狸跳过了懒狗。'
+    };
+    
+    const langPrefix = lang.split('-')[0];
+    return previewTexts[langPrefix] || previewTexts['en'];
   }
 
   private safeGetSelection(): Selection | null {
@@ -704,6 +782,11 @@ class TextSelectionHandler {
   // Public method to get selected text (for ContentScriptController compatibility)
   public getSelectedText(): string {
     return this.selectionText;
+  }
+
+  // Public getter for speechSynthesizer
+  public get speechSynthesizer(): SpeechSynthesizer | null {
+    return this._speechSynthesizer;
   }
 
   // Public methods for testing (expose private methods)
@@ -749,7 +832,7 @@ class ContentScriptController {
     this.initialize();
   }
 
-  private initialize() {
+  private async initialize() {
     devLog('Content script initialized on:', window.location.href);
 
     // Notify background that content script is ready
@@ -758,8 +841,115 @@ class ContentScriptController {
       payload: { url: window.location.href },
     });
 
+    // Enumerate and send voice data if we have access to speechSynthesis
+    await this.enumerateAndUpdateVoices();
+
     this.setupEventListeners();
     this.injectStyles();
+  }
+
+  private async enumerateAndUpdateVoices() {
+    try {
+      // Check if we have access to speechSynthesis
+      if (typeof speechSynthesis !== 'undefined') {
+        devLog('Enumerating voices in content script...');
+        
+        // Get voices from the TextSelectionHandler's speech synthesizer
+        const speechSynthesizer = this.textSelectionHandler.speechSynthesizer;
+        if (speechSynthesizer && speechSynthesizer.isReady()) {
+          const voices = speechSynthesizer.getAvailableVoices();
+          
+          if (voices.length > 0) {
+            // Convert to VoiceInfo format and send to background
+            const voiceInfos = voices.map(voice => ({
+              ...voice,
+              displayName: this.formatVoiceName(voice),
+              languageDisplay: this.formatLanguage(voice.lang),
+              quality: this.determineVoiceQuality(voice),
+              gender: this.guessGender(voice.name),
+              engine: this.determineEngine(voice),
+              voiceURI: voice.name // Add missing property
+            }));
+            
+            await chrome.runtime.sendMessage({
+              type: MessageType.UPDATE_VOICE_DATA,
+              payload: { voices: voiceInfos }
+            });
+            devLog('Sent voice data to background script:', voiceInfos.length, 'voices');
+          }
+        }
+      }
+    } catch (error) {
+      devLog('Error enumerating voices:', error);
+    }
+  }
+
+  private formatVoiceName(voice: { name: string; localService: boolean }): string {
+    let name = voice.name;
+    
+    name = name.replace(/^Microsoft\s+/i, '');
+    name = name.replace(/^Google\s+/i, '');
+    name = name.replace(/^Apple\s+/i, '');
+    
+    if (!voice.localService) {
+      name += ' (Online)';
+    }
+    
+    return name;
+  }
+
+  private formatLanguage(langCode: string): string {
+    const languageNames: Record<string, string> = {
+      'en-US': 'English (US)',
+      'en-GB': 'English (UK)',
+      'en-AU': 'English (Australia)',
+      'es-ES': 'Spanish (Spain)',
+      'es-MX': 'Spanish (Mexico)',
+      'fr-FR': 'French',
+      'de-DE': 'German',
+      'it-IT': 'Italian',
+      'pt-BR': 'Portuguese (Brazil)',
+      'ja-JP': 'Japanese',
+      'ko-KR': 'Korean',
+      'zh-CN': 'Chinese (Simplified)',
+      'zh-TW': 'Chinese (Traditional)'
+    };
+    
+    return languageNames[langCode] || langCode;
+  }
+
+  private determineVoiceQuality(voice: { name: string; localService: boolean }): 'premium' | 'enhanced' | 'standard' | 'compact' {
+    if (!voice.localService) return 'premium';
+    if (voice.name.toLowerCase().includes('enhanced')) return 'enhanced';
+    if (voice.name.toLowerCase().includes('compact')) return 'compact';
+    return 'standard';
+  }
+
+  private guessGender(voiceName: string): 'male' | 'female' | 'neutral' {
+    const name = voiceName.toLowerCase();
+    
+    const femaleIndicators = ['female', 'woman', 'girl', 'samantha', 'victoria', 
+                             'kate', 'karen', 'nicole', 'jennifer', 'lisa'];
+    const maleIndicators = ['male', 'man', 'boy', 'daniel', 'thomas', 'james', 
+                           'robert', 'john', 'michael', 'david'];
+    
+    if (femaleIndicators.some(indicator => name.includes(indicator))) {
+      return 'female';
+    }
+    if (maleIndicators.some(indicator => name.includes(indicator))) {
+      return 'male';
+    }
+    
+    return 'neutral';
+  }
+
+  private determineEngine(voice: { name: string }): string {
+    const name = voice.name.toLowerCase();
+    if (name.includes('microsoft')) return 'Microsoft';
+    if (name.includes('google')) return 'Google';
+    if (name.includes('apple')) return 'Apple';
+    if (name.includes('amazon')) return 'Amazon';
+    return 'System';
   }
 
   private setupEventListeners() {
@@ -777,19 +967,27 @@ class ContentScriptController {
 
       switch (message.type) {
         case MessageType.SPEAK_SELECTION:
-          if (message.payload && typeof message.payload === 'object') {
-            if ('fullPage' in message.payload && message.payload.fullPage) {
-              this.speakFullPage();
-            } else {
-              const text = 'text' in message.payload 
-                ? String(message.payload.text) 
-                : this.textSelectionHandler.getSelectedText();
-              this.speakText(text);
+          // Handle async speakText calls
+          (async () => {
+            try {
+              if (message.payload && typeof message.payload === 'object') {
+                if ('fullPage' in message.payload && message.payload.fullPage) {
+                  await this.speakFullPage();
+                } else {
+                  const text = 'text' in message.payload 
+                    ? String(message.payload.text) 
+                    : this.textSelectionHandler.getSelectedText();
+                  await this.speakText(text);
+                }
+              } else {
+                await this.speakText(this.textSelectionHandler.getSelectedText());
+              }
+              sendResponse({ success: true });
+            } catch (error) {
+              sendResponse({ success: false, error: (error as Error).message });
             }
-          } else {
-            this.speakText(this.textSelectionHandler.getSelectedText());
-          }
-          sendResponse({ success: true });
+          })();
+          return true; // Keep message channel open for async response
           break;
 
         case MessageType.HIGHLIGHT_TEXT:
@@ -857,27 +1055,43 @@ class ContentScriptController {
     document.head.appendChild(style);
   }
 
-  private speakText(text: string) {
+  private async speakText(text: string) {
     if (!text) return;
 
-    // Use the unified Web Speech API flow through TextSelectionHandler
-    // This ensures proper state tracking and stop functionality
-    this.textSelectionHandler.handleMessage({
-      type: MessageType.START_SPEECH,
-      payload: { text }
-    }, {} as chrome.runtime.MessageSender, () => {});
+    try {
+      // Get the currently selected voice from background script
+      const voiceResponse = await chrome.runtime.sendMessage({
+        type: MessageType.GET_VOICE_DATA
+      });
+      
+      const selectedVoice = voiceResponse?.selectedVoice || null;
 
-    // Visual feedback is now handled by the new TTS feedback system
+      // Use the unified Web Speech API flow through TextSelectionHandler
+      // This ensures proper state tracking and stop functionality
+      this.textSelectionHandler.handleMessage({
+        type: MessageType.START_SPEECH,
+        payload: { text, voice: selectedVoice }
+      }, {} as chrome.runtime.MessageSender, () => {});
+
+      // Visual feedback is now handled by the new TTS feedback system
+    } catch (error) {
+      console.error('Error getting voice data:', error);
+      // Fallback to speaking without voice specification
+      this.textSelectionHandler.handleMessage({
+        type: MessageType.START_SPEECH,
+        payload: { text }
+      }, {} as chrome.runtime.MessageSender, () => {});
+    }
   }
 
-  private speakFullPage() {
+  private async speakFullPage() {
     // Get main content (simplified version)
     const content = document.body.innerText
       .split('\n')
       .filter((line) => line.trim().length > 0)
       .join('. ');
 
-    this.speakText(content);
+    await this.speakText(content);
   }
 
   private highlightText(searchText: string) {
