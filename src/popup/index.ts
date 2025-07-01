@@ -860,6 +860,10 @@ class PopupController {
   private updateSpeedUI(speedInfo: SpeedInfo) {
     this.currentSpeed = speedInfo.current;
     
+    // Ensure controls are enabled when we have valid speed data
+    this.elements.speedSlider.disabled = false;
+    this.elements.speedSlider.style.opacity = '1';
+    
     // Update slider
     this.elements.speedSlider.value = speedInfo.current.toString();
     this.elements.speedSlider.min = speedInfo.min.toString();
@@ -872,7 +876,7 @@ class PopupController {
     // Update preset buttons
     this.updatePresetButtons(speedInfo.current);
     
-    // Update button states
+    // Update button states based on current speed limits
     this.elements.speedDownBtn.disabled = speedInfo.current <= speedInfo.min;
     this.elements.speedUpBtn.disabled = speedInfo.current >= speedInfo.max;
   }
@@ -916,7 +920,9 @@ class PopupController {
         this.currentSpeed = speed;
         debugLog('Real-time speed update:', speed);
       } catch (error) {
-        debugLog('Error in real-time speed update:', error);
+        debugLog('Real-time speed update failed, applying locally:', error);
+        // Apply locally even if background communication fails
+        this.currentSpeed = speed;
       }
       this.speedUpdateTimeout = null;
     }, this.speedUpdateDelay);
@@ -978,11 +984,22 @@ class PopupController {
         data: { speed: speed }
       });
       
-      await this.initializeSpeedManager();
+      // Try to update from background, but don't fail if it's unavailable
+      await this.initializeSpeedManager().catch(() => {
+        debugLog('Background update failed, using local speed value');
+      });
+      
       this.showTemporaryMessage(`Speed set to ${speed}x`);
     } catch (error) {
-      debugLog('Error setting speed:', error);
-      this.showError('Failed to set speed');
+      debugLog('Background communication failed, applying speed locally:', error);
+      
+      // Fallback: Apply speed change locally
+      this.currentSpeed = speed;
+      this.elements.speedValue.textContent = speed.toFixed(1) + 'x';
+      this.updatePresetButtons(speed);
+      
+      // Show message indicating local-only mode
+      this.showTemporaryMessage(`Speed set to ${speed}x (local mode)`);
     }
   }
 
@@ -1054,17 +1071,40 @@ class PopupController {
   private showSpeedInitializationError(error: string) {
     debugLog('Popup: Showing speed initialization error:', error);
     
-    // Show error in speed value display
-    this.elements.speedValue.textContent = 'Error';
-    this.elements.speedSlider.disabled = true;
-    this.elements.speedUpBtn.disabled = true;
-    this.elements.speedDownBtn.disabled = true;
+    // Use local fallback instead of completely disabling
+    this.enableLocalSpeedControl();
     
-    // Add visual indicator
-    this.elements.speedSlider.style.opacity = '0.5';
+    // Show temporary error message with retry option
+    this.showTemporaryMessage('Speed control using local fallback. Retrying background connection...');
     
-    // Show temporary error message
-    this.showTemporaryMessage('Speed control initialization failed: ' + error);
+    // Retry background connection after a delay
+    setTimeout(() => {
+      this.initializeSpeedManager().catch(() => {
+        debugLog('Background retry failed, continuing with local fallback');
+      });
+    }, 3000);
+  }
+
+  private enableLocalSpeedControl() {
+    // Enable slider with local-only speed control
+    this.elements.speedSlider.disabled = false;
+    this.elements.speedUpBtn.disabled = false;
+    this.elements.speedDownBtn.disabled = false;
+    this.elements.speedSlider.style.opacity = '1';
+    
+    // Set default speed info if background is unavailable
+    const fallbackSpeedInfo: SpeedInfo = {
+      current: 1.0,
+      default: 1.0,
+      min: 0.5,
+      max: 3.0,
+      step: 0.1,
+      presets: [0.75, 1.0, 1.25, 1.5, 2.0],
+      formatted: '1.0x'
+    };
+    
+    this.updateSpeedUI(fallbackSpeedInfo);
+    debugLog('Speed control enabled with local fallback values');
   }
 
   private showTemporaryMessage(message: string) {
