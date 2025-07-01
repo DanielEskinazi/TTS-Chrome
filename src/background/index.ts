@@ -871,14 +871,20 @@ class TTSManager {
       this.clearStopTimeout();
 
       if (this.currentTabId) {
-        // Send stop command to content script
-        await chrome.tabs.sendMessage(this.currentTabId, {
-          type: MessageType.STOP_SPEECH,
-          payload: { source: source }
-        }).catch(error => {
-          console.warn('Could not send stop message to tab:', error);
-          // Tab might be closed or unresponsive, continue with cleanup
-        });
+        // Send stop command to content script with robust error handling
+        try {
+          // First check if tab still exists
+          const tab = await chrome.tabs.get(this.currentTabId).catch(() => null);
+          if (tab && tab.url && !tab.url.startsWith('chrome://')) {
+            await chrome.tabs.sendMessage(this.currentTabId, {
+              type: MessageType.STOP_SPEECH,
+              payload: { source: source }
+            });
+          }
+        } catch (error) {
+          // Silently handle expected errors (tab closed, content script not ready, etc.)
+          debugLog('Stop message not sent to tab (expected):', (error as Error).message);
+        }
       }
 
       // Reset state
@@ -1198,12 +1204,17 @@ class TTSManager {
     // Get length of currently selected or playing text
     if (this.currentTabId) {
       try {
-        const response = await chrome.tabs.sendMessage(this.currentTabId, {
-          type: 'GET_CURRENT_TEXT_LENGTH'
-        });
-        return response.length || 0;
+        // Check if tab exists and is accessible
+        const tab = await chrome.tabs.get(this.currentTabId).catch(() => null);
+        if (tab && tab.url && !tab.url.startsWith('chrome://')) {
+          const response = await chrome.tabs.sendMessage(this.currentTabId, {
+            type: 'GET_CURRENT_TEXT_LENGTH'
+          });
+          return response.length || 0;
+        }
       } catch (error) {
-        debugLog('Error getting text length:', error);
+        // Silently handle expected errors
+        debugLog('Text length not available (expected):', (error as Error).message);
       }
     }
     return 0;
@@ -1218,89 +1229,84 @@ let voiceManager: VoiceManager;
 let speedManager: SpeedManager;
 
 let isInitialized = false;
-let initializationAttempts = 0;
-const maxInitializationAttempts = 3;
+let isInitializing = false;
 
-async function initializeExtension(retryCount = 0): Promise<boolean> {
-  if (isInitialized) {
-    debugLog('Extension already initialized, skipping');
-    return true;
+async function initializeExtension(): Promise<boolean> {
+  // Prevent multiple simultaneous initializations
+  if (isInitialized || isInitializing) {
+    debugLog('Extension already initialized or initializing, skipping');
+    return isInitialized;
   }
 
-  initializationAttempts++;
-  debugLog(`Initializing extension (attempt ${initializationAttempts}/${maxInitializationAttempts})`);
+  isInitializing = true;
+  debugLog('Initializing extension...');
 
   try {
-    // Initialize voice manager first
-    debugLog('Initializing VoiceManager...');
-    voiceManager = new VoiceManager();
+    // Initialize managers with error isolation - create singletons
+    if (!voiceManager) {
+      debugLog('Initializing VoiceManager...');
+      voiceManager = new VoiceManager();
+      
+      // Initialize voice manager in background - don't block on it
+      voiceManager.init().catch(error => {
+        console.warn('Voice manager initialization failed (non-critical):', error);
+      });
+    }
     
-    // Don't let voice manager failure block the entire initialization
-    voiceManager.init().catch(error => {
-      console.error('Failed to initialize voice manager:', error);
-    });
+    // Initialize speed manager only if not already created
+    if (!speedManager) {
+      debugLog('Initializing SpeedManager...');
+      speedManager = new SpeedManager();
+      await speedManager.waitForInitialization();
+      debugLog('SpeedManager ready');
+    }
     
-    // Initialize speed manager and wait for it to be ready
-    debugLog('Initializing SpeedManager...');
-    speedManager = new SpeedManager();
-    await speedManager.waitForInitialization();
-    debugLog('SpeedManager initialization completed');
+    // Initialize core managers with singleton pattern
+    if (!selectionManager) {
+      selectionManager = new SelectionManager();
+    }
+    if (!contextMenuManager) {
+      contextMenuManager = new ContextMenuManager(selectionManager, voiceManager);
+    }
+    if (!ttsManager) {
+      ttsManager = new TTSManager(voiceManager, speedManager);
+    }
     
-    // Initialize core managers
-    debugLog('Initializing core managers...');
-    selectionManager = new SelectionManager();
-    contextMenuManager = new ContextMenuManager(selectionManager, voiceManager);
-    ttsManager = new TTSManager(voiceManager, speedManager);
-    
-    // Link the managers for bi-directional communication
+    // Set up relationships (safe to call multiple times)
     selectionManager.setContextMenuManager(contextMenuManager);
     contextMenuManager.setTTSManager(ttsManager);
     ttsManager.setContextMenuManager(contextMenuManager);
     
-    // Create context menus after all managers are ready
-    debugLog('Creating context menus...');
-    contextMenuManager.createContextMenu();
-    
-    isInitialized = true;
-    debugLog('Background script loaded and ready');
-    debugLog(`Service worker started successfully (attempt ${initializationAttempts})`);
-    
-    return true;
-  } catch (error) {
-    console.error(`Failed to initialize background script (attempt ${initializationAttempts}):`, error);
-    debugLog('Service worker initialization failed:', error);
-    
-    // Retry if we haven't exceeded max attempts
-    if (retryCount < maxInitializationAttempts - 1) {
-      const retryDelay = Math.min(1000 * Math.pow(2, retryCount), 5000); // Exponential backoff, max 5s
-      debugLog(`Retrying initialization in ${retryDelay}ms...`);
-      
-      setTimeout(() => {
-        initializeExtension(retryCount + 1);
-      }, retryDelay);
-    } else {
-      console.error('Max initialization attempts reached, extension may not function properly');
+    // Create context menu (idempotent operation)
+    try {
+      contextMenuManager.createContextMenu();
+    } catch (error) {
+      console.warn('Context menu creation failed (non-critical):', error);
     }
     
+    isInitialized = true;
+    debugLog('Extension initialization completed successfully');
+    return true;
+    
+  } catch (error) {
+    console.error('Critical initialization error:', error);
     return false;
+  } finally {
+    isInitializing = false;
   }
 }
 
-// Service worker lifecycle management
-// Note: serviceWorkerRestarted is used for future restart detection logic
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-let serviceWorkerRestarted = false;
-
-// Handle service worker startup (browser starts)
+// Simple service worker lifecycle - let Chrome handle restarts naturally
+// Handle service worker startup (browser starts or worker restarts)
 chrome.runtime.onStartup.addListener(() => {
   debugLog('Browser started, initializing extension...');
-  serviceWorkerRestarted = true;
-  isInitialized = false;
-  initializationAttempts = 0;
-  initializeExtension();
+  // Simple one-time initialization on browser startup
+  if (!isInitialized) {
+    initializeExtension();
+  }
 });
 
-// Handle service worker suspension/wake (service worker was terminated and restarted)
+// Handle service worker suspension/wake (clean shutdown)
 chrome.runtime.onSuspend?.addListener(() => {
   debugLog('Service worker being suspended...');
   // Clean up any pending operations
@@ -1311,62 +1317,8 @@ chrome.runtime.onSuspend?.addListener(() => {
   }
 });
 
-// Keep service worker alive by maintaining connections
-let keepAlivePort: chrome.runtime.Port | null = null;
-
-function keepServiceWorkerAlive() {
-  // Create a persistent connection to keep service worker alive
-  if (!keepAlivePort) {
-    keepAlivePort = chrome.runtime.connect({ name: 'keepAlive' });
-    
-    keepAlivePort.onDisconnect.addListener(() => {
-      debugLog('Keep-alive port disconnected, recreating...');
-      keepAlivePort = null;
-      
-      // If we detect disconnection, it means the service worker is restarting
-      if (isInitialized) {
-        debugLog('Service worker restart detected, reinitializing...');
-        serviceWorkerRestarted = true;
-        isInitialized = false;
-        initializationAttempts = 0;
-        initializeExtension();
-      }
-      
-      // Recreate the connection after a delay
-      setTimeout(() => {
-        keepServiceWorkerAlive();
-      }, 1000);
-    });
-  }
-}
-
-// Detect service worker restarts by monitoring context invalidation
-let lastHeartbeat = Date.now();
-
-function heartbeat() {
-  const now = Date.now();
-  const timeSinceLastHeartbeat = now - lastHeartbeat;
-  
-  // If too much time has passed, service worker likely restarted
-  if (timeSinceLastHeartbeat > 35000 && isInitialized) { // Chrome suspends after 30s of inactivity
-    debugLog('Heartbeat gap detected, service worker likely restarted');
-    serviceWorkerRestarted = true;
-    isInitialized = false;
-    initializationAttempts = 0;
-    initializeExtension();
-  }
-  
-  lastHeartbeat = now;
-}
-
-// Set up heartbeat monitoring
-setInterval(heartbeat, 5000); // Check every 5 seconds
-
-// Initialize the extension
-initializeExtension().then(() => {
-  // Start keep-alive mechanism after successful initialization
-  keepServiceWorkerAlive();
-});
+// Simple initialization - no aggressive restart detection
+initializeExtension();
 
 // Service worker lifecycle
 chrome.runtime.onInstalled.addListener((details) => {

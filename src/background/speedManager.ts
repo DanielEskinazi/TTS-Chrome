@@ -195,14 +195,18 @@ export class SpeedManager {
   }
 
   private notifySpeedChange(speed: number): void {
+    // Silently notify other parts of extension about speed changes
     chrome.runtime.sendMessage({
       type: 'SPEED_CHANGED', // This will be MessageType.SPEED_CHANGED when imported
       data: { 
         speed: speed,
         formatted: this.formatSpeed(speed)
       }
-    }).catch(() => {
-      // Ignore if no listeners
+    }).catch((error) => {
+      // Expected when no listeners are active - don't log unless it's unexpected
+      if (!error.message.includes('Receiving end does not exist')) {
+        console.warn('Unexpected error in speed change notification:', error);
+      }
     });
   }
 
