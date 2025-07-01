@@ -32,6 +32,7 @@ class PopupController {
     forceStopBtn: HTMLButtonElement;
     voiceSelect: HTMLSelectElement;
     previewBtn: HTMLButtonElement;
+    initStatus: HTMLDivElement;
   };
 
   private state = {
@@ -72,6 +73,7 @@ class PopupController {
       forceStopBtn: document.getElementById('forceStopBtn') as HTMLButtonElement,
       voiceSelect: document.getElementById('voiceSelect') as HTMLSelectElement,
       previewBtn: document.getElementById('previewBtn') as HTMLButtonElement,
+      initStatus: document.getElementById('initStatus') as HTMLDivElement,
     };
 
     this.initialize();
@@ -579,10 +581,15 @@ class PopupController {
     if (this.voiceData.voices.length === 0) {
       const option = document.createElement('option');
       option.value = '';
-      option.textContent = 'No voices available';
+      option.textContent = 'Using system default voice';
       this.elements.voiceSelect.appendChild(option);
+      // Hide loading status - extension is still functional with default voice
+      this.elements.initStatus.style.display = 'none';
       return;
     }
+    
+    // Hide loading status when voices are loaded
+    this.elements.initStatus.style.display = 'none';
     
     // Group voices by language
     const voicesByLang = new Map<string, VoiceInfo[]>();

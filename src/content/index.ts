@@ -28,12 +28,13 @@ class TextSelectionHandler {
 
   constructor() {
     try {
+      // SpeechSynthesizer now initializes synchronously and is immediately ready
       this._speechSynthesizer = new SpeechSynthesizer();
-      // Initialize asynchronously without blocking
-      this._speechSynthesizer.init().catch(error => {
-        console.warn('SpeechSynthesizer initialization failed:', error);
-        this._speechSynthesizer = null;
-      });
+      
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.log('🚀 SpeechSynthesizer created - TTS ready immediately!');
+      }
     } catch (error) {
       console.warn('SpeechSynthesizer not available:', error);
       // Gracefully handle cases where SpeechSynthesizer is not available (e.g., tests)
@@ -957,20 +958,28 @@ class ContentScriptController {
   private async initialize() {
     devLog('Content script initialized on:', window.location.href);
 
-    // Notify background that content script is ready
+    // Setup event listeners and styles immediately - don't wait for voice enumeration
+    this.setupEventListeners();
+    this.injectStyles();
+
+    // Notify background that content script is ready (immediately functional)
     chrome.runtime.sendMessage({
       type: MessageType.CONTENT_READY,
       payload: { url: window.location.href },
     });
 
-    // Enumerate and send voice data if we have access to speechSynthesis
-    await this.enumerateAndUpdateVoices();
-
-    this.setupEventListeners();
-    this.injectStyles();
+    // Enumerate voices in background without blocking
+    this.enumerateAndUpdateVoicesAsync().catch(error => {
+      console.warn('Voice enumeration failed, extension still functional:', error);
+    });
+    
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.log('🎯 Content script fully initialized - Extension ready for use!');
+    }
   }
 
-  private async enumerateAndUpdateVoices() {
+  private async enumerateAndUpdateVoicesAsync() {
     try {
       // Check if we have access to speechSynthesis
       if (typeof speechSynthesis !== 'undefined') {

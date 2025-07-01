@@ -59,64 +59,100 @@ export class SpeechSynthesizer {
   };
 
   constructor() {
-    // Don't auto-initialize in constructor to avoid blocking
-    // Call init() manually when ready
+    // Initialize immediately with basic functionality
+    this.initializeSync();
+    // Load voices in background without blocking
+    this.loadVoicesAsync();
   }
 
-  async init(): Promise<void> {
-    try {
-      // Check if Speech Synthesis is supported
-      if (!('speechSynthesis' in window)) {
-        throw new Error('Speech Synthesis not supported');
-      }
+  private initializeSync(): void {
+    // Check if Speech Synthesis is supported
+    if (!('speechSynthesis' in window)) {
+      console.warn('Speech Synthesis not supported');
+      return;
+    }
 
-      // Load voices (may need to wait for voices to load)
+    // Set up event listeners immediately
+    this.setupSpeechEvents();
+    
+    // Mark as ready for basic functionality
+    this.isInitialized = true;
+    
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.log('Speech Synthesizer initialized (sync) - basic functionality ready');
+    }
+  }
+
+  private async loadVoicesAsync(): Promise<void> {
+    try {
+      // Load voices in background without blocking startup
       await this.loadVoices();
       
-      // Set up event listeners
-      this.setupSpeechEvents();
-      
-      this.isInitialized = true;
       if (process.env.NODE_ENV === 'development') {
         // eslint-disable-next-line no-console
-        console.log('Speech Synthesizer initialized');
+        console.log('Speech Synthesizer voice enumeration completed');
       }
       
     } catch (error) {
-      console.error('Failed to initialize Speech Synthesizer:', error);
+      console.warn('Voice enumeration failed, using fallback:', error);
+      // Extension still works with default system voice
       this.handleInitializationError(error as Error);
     }
   }
 
+  async init(): Promise<void> {
+    // For backward compatibility - now just waits for voice loading
+    if (!this.isInitialized) {
+      this.initializeSync();
+    }
+    // Don't block - voices load in background
+  }
+
   private async loadVoices(): Promise<SpeechSynthesisVoice[]> {
-    return new Promise((resolve, reject) => {
-      // Get voices immediately if available
+    return new Promise((resolve) => {
+      // Check cache first for faster subsequent loads
       let voices = speechSynthesis.getVoices();
       
       if (voices.length > 0) {
         this.processVoices(voices);
         resolve(voices);
-      } else {
-        // Wait for voices to load
-        const voicesChangedHandler = () => {
-          voices = speechSynthesis.getVoices();
-          if (voices.length > 0) {
-            speechSynthesis.removeEventListener('voiceschanged', voicesChangedHandler);
-            this.processVoices(voices);
-            resolve(voices);
-          }
-        };
-        
-        speechSynthesis.addEventListener('voiceschanged', voicesChangedHandler);
-        
-        // Timeout after 5 seconds
-        setTimeout(() => {
-          speechSynthesis.removeEventListener('voiceschanged', voicesChangedHandler);
-          if (voices.length === 0) {
-            reject(new Error('No voices available'));
-          }
-        }, 5000);
+        return;
       }
+
+      // Setup voice loading with shorter timeout and fallback
+      let isResolved = false;
+      
+      const voicesChangedHandler = () => {
+        if (isResolved) return;
+        
+        voices = speechSynthesis.getVoices();
+        if (voices.length > 0) {
+          isResolved = true;
+          speechSynthesis.removeEventListener('voiceschanged', voicesChangedHandler);
+          this.processVoices(voices);
+          resolve(voices);
+        }
+      };
+      
+      speechSynthesis.addEventListener('voiceschanged', voicesChangedHandler);
+      
+      // Reduced timeout to 2 seconds instead of 5
+      setTimeout(() => {
+        if (!isResolved) {
+          isResolved = true;
+          speechSynthesis.removeEventListener('voiceschanged', voicesChangedHandler);
+          
+          // Always resolve, even with no voices - use system default
+          if (voices.length === 0) {
+            console.warn('No voices loaded, using system default');
+            this.useSystemDefaults();
+          } else {
+            this.processVoices(voices);
+          }
+          resolve(voices);
+        }
+      }, 2000);
     });
   }
 
@@ -130,6 +166,18 @@ export class SpeechSynthesizer {
     if (process.env.NODE_ENV === 'development') {
       // eslint-disable-next-line no-console
       console.log(`Loaded ${this.availableVoices.length} voices, default: ${this.defaultVoice?.name}`);
+    }
+  }
+
+  private useSystemDefaults(): void {
+    // Use minimal fallback configuration when no voices are available
+    this.availableVoices = [];
+    this.defaultVoice = null;
+    this.settings.voice = null;
+    
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.log('Using system default voice (no enumeration available)');
     }
   }
 
