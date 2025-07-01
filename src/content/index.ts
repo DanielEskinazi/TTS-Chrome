@@ -136,6 +136,15 @@ class TextSelectionHandler {
       return;
     }
     
+    // Handle Ctrl+Shift+R (or Cmd+Shift+R on Mac) - Read entire page
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'r') {
+      this.lastShortcutTime = now;
+      devLog('[Keyboard] Read page shortcut triggered: Ctrl/Cmd+Shift+R');
+      event.preventDefault();
+      this.handleReadPageShortcut();
+      return;
+    }
+    
     // Handle Ctrl+Shift+Space for pause/resume
     if (event.ctrlKey && event.shiftKey && event.key === ' ') {
       this.lastShortcutTime = now;
@@ -226,6 +235,23 @@ class TextSelectionHandler {
       devLog('[Keyboard] TTS stop message sent to background');
     } catch (error) {
       devLog('[Keyboard] Error stopping TTS:', error);
+    }
+  }
+  
+  private async handleReadPageShortcut() {
+    devLog('[Keyboard] Read page shortcut handler called');
+    
+    try {
+      // Send SPEAK_SELECTION message with fullPage flag (same as popup does)
+      await chrome.runtime.sendMessage({
+        type: MessageType.SPEAK_SELECTION,
+        payload: { fullPage: true }
+      });
+      
+      devLog('[Keyboard] Page reading message sent');
+    } catch (error) {
+      devLog('[Keyboard] Error reading page:', error);
+      this.showUserFeedback('Failed to read page', 'error');
     }
   }
 
