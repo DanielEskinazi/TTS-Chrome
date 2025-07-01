@@ -341,8 +341,19 @@ class PopupController {
       });
 
       if (response && response.success) {
-        const state = response.data;
-        this.ttsState.isPlaying = state?.isActive || false;
+        const data = response.data;
+        debugLog('[updateTTSState] Received state data:', data);
+        
+        // Use the actual response format from background script
+        // Background returns: { isActive, isPaused, currentTabId, forceStopAttempts, hasTimeout }
+        this.ttsState.isPlaying = data?.isActive || false;
+        this.ttsState.isPaused = data?.isPaused || false;
+        
+        debugLog('[updateTTSState] Mapped state:', {
+          isPlaying: this.ttsState.isPlaying,
+          isPaused: this.ttsState.isPaused
+        });
+        
         this.updateTTSUI();
       }
     } catch (error) {
@@ -382,6 +393,14 @@ class PopupController {
 
     this.ttsState.isPlaying = newState.isPlaying;
     this.ttsState.isPaused = newState.isPaused;
+    
+    // Debug: Log state assignment
+    debugLog('[handleTTSStateChange] State assigned:', {
+      'this.ttsState.isPlaying': this.ttsState.isPlaying,
+      'this.ttsState.isPaused': this.ttsState.isPaused,
+      'newState.isPlaying': newState.isPlaying,
+      'newState.isPaused': newState.isPaused
+    });
 
     // Update current text if available
     if (playbackState && (playbackState as Record<string, unknown>).currentText) {
@@ -452,8 +471,16 @@ class PopupController {
   }
 
   private updateTTSUI() {
+    // Debug: Log current state before UI update
+    debugLog('[updateTTSUI] Current state:', {
+      isPlaying: this.ttsState.isPlaying,
+      isPaused: this.ttsState.isPaused,
+      currentText: this.ttsState.currentText ? this.ttsState.currentText.substring(0, 50) + '...' : null
+    });
+
     // Update TTS status display
     if (this.ttsState.isPaused) {
+      debugLog('[updateTTSUI] Entering PAUSED condition');
       this.elements.ttsStatus.querySelector('.status-text')!.textContent = 'TTS is paused';
       this.elements.ttsStatus.className = 'status-card paused';
       this.updatePlayPauseButton('resume');
@@ -463,6 +490,7 @@ class PopupController {
         this.showCurrentText();
       }
     } else if (this.ttsState.isPlaying) {
+      debugLog('[updateTTSUI] Entering PLAYING condition');
       this.elements.ttsStatus.querySelector('.status-text')!.textContent = 'TTS is playing';
       this.elements.ttsStatus.className = 'status-card playing';
       this.updatePlayPauseButton('pause');
@@ -472,6 +500,7 @@ class PopupController {
         this.showCurrentText();
       }
     } else {
+      debugLog('[updateTTSUI] Entering STOPPED condition');
       this.elements.ttsStatus.querySelector('.status-text')!.textContent = 'TTS is not active';
       this.elements.ttsStatus.className = 'status-card stopped';
       this.updatePlayPauseButton('play');
@@ -485,6 +514,8 @@ class PopupController {
   }
 
   private updatePlayPauseButton(mode: 'play' | 'pause' | 'resume') {
+    debugLog('[updatePlayPauseButton] Setting button mode to:', mode);
+    
     const iconSpan = this.elements.playPauseBtn.querySelector('.btn-icon') as HTMLSpanElement;
     const textSpan = this.elements.playPauseBtn.querySelector('.btn-text') as HTMLSpanElement;
 
