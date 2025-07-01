@@ -117,6 +117,25 @@ class PopupController {
     await this.initializeSpeedManager();
     this.setupEventListeners();
     this.updateUI();
+    
+    // Additional speed sync attempts to handle timing issues
+    setTimeout(() => this.syncSpeedWithBackground(), 500);
+    setTimeout(() => this.syncSpeedWithBackground(), 1500);
+  }
+
+  private async syncSpeedWithBackground() {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: MessageType.GET_SPEED_INFO
+      });
+      
+      if (response && response.speedInfo) {
+        debugLog('Popup: Background speed sync successful:', response.speedInfo);
+        this.updateSpeedUI(response.speedInfo);
+      }
+    } catch (error) {
+      debugLog('Popup: Background speed sync failed:', error);
+    }
   }
 
   private async loadState() {
@@ -320,7 +339,9 @@ class PopupController {
         type: MessageType.GET_SPEED_INFO
       });
       
-      if (response && response.success !== false && response.speedInfo) {
+      debugLog('Popup: GET_SPEED_INFO response:', response);
+      
+      if (response && response.speedInfo) {
         this.updateSpeedUI(response.speedInfo);
         debugLog('Popup: Speed manager initialized successfully');
       } else if (response && response.error) {
@@ -1092,7 +1113,23 @@ class PopupController {
     this.elements.speedDownBtn.disabled = false;
     this.elements.speedSlider.style.opacity = '1';
     
-    // Set default speed info if background is unavailable
+    // Try to get actual current speed from background before using fallback
+    chrome.runtime.sendMessage({ type: MessageType.GET_SPEED_INFO })
+      .then(response => {
+        if (response && response.speedInfo) {
+          debugLog('Got current speed from background for fallback mode:', response.speedInfo);
+          this.updateSpeedUI(response.speedInfo);
+        } else {
+          // Use fallback values only if we can't get current speed
+          this.applyFallbackSpeedValues();
+        }
+      })
+      .catch(() => {
+        this.applyFallbackSpeedValues();
+      });
+  }
+
+  private applyFallbackSpeedValues() {
     const fallbackSpeedInfo: SpeedInfo = {
       current: 1.0,
       default: 1.0,
