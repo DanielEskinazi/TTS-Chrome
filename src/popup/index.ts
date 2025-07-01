@@ -74,6 +74,10 @@ class PopupController {
 
   private isPreviewPlaying = false;
   private currentSpeed = 1.0;
+  
+  // Speed slider throttling for real-time updates
+  private speedUpdateTimeout: number | null = null;
+  private readonly speedUpdateDelay = 150; // ms - throttle speed updates during drag
 
   constructor() {
     this.elements = {
@@ -886,19 +890,49 @@ class PopupController {
 
   private handleSpeedSliderChange(event: Event) {
     const speed = parseFloat((event.target as HTMLInputElement).value);
+    
+    // Immediate UI feedback
     this.elements.speedValue.textContent = speed.toFixed(1) + 'x';
     this.updatePresetButtons(speed);
-    
-    // Update time estimate if text is selected
     this.updateTimeEstimate(speed);
+    
+    // Throttled real-time speed updates during drag
+    this.scheduleSpeedUpdate(speed);
+  }
+
+  private scheduleSpeedUpdate(speed: number) {
+    // Clear any pending speed update
+    if (this.speedUpdateTimeout !== null) {
+      clearTimeout(this.speedUpdateTimeout);
+    }
+    
+    // Schedule new speed update with throttling
+    this.speedUpdateTimeout = window.setTimeout(async () => {
+      try {
+        await chrome.runtime.sendMessage({
+          type: MessageType.SET_SPEED,
+          data: { speed: speed }
+        });
+        this.currentSpeed = speed;
+        debugLog('Real-time speed update:', speed);
+      } catch (error) {
+        debugLog('Error in real-time speed update:', error);
+      }
+      this.speedUpdateTimeout = null;
+    }, this.speedUpdateDelay);
   }
 
   private async handleSpeedSliderCommit(event: Event) {
     const speed = parseFloat((event.target as HTMLInputElement).value);
     
-    // Update current speed immediately for responsive feedback
-    this.currentSpeed = speed;
+    // Clear any pending throttled update since we're committing immediately
+    if (this.speedUpdateTimeout !== null) {
+      clearTimeout(this.speedUpdateTimeout);
+      this.speedUpdateTimeout = null;
+    }
     
+    // Final speed commit on drag end
+    this.currentSpeed = speed;
     await this.setSpeed(speed);
   }
 
@@ -1044,6 +1078,14 @@ class PopupController {
       this.elements.ttsStatus.querySelector('.status-text')!.textContent = originalText || '';
       this.elements.ttsStatus.className = originalClass;
     }, 2000);
+  }
+
+  // Cleanup method to prevent memory leaks
+  public cleanup() {
+    if (this.speedUpdateTimeout !== null) {
+      clearTimeout(this.speedUpdateTimeout);
+      this.speedUpdateTimeout = null;
+    }
   }
 }
 
