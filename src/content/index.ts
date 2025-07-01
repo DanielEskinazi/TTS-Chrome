@@ -625,9 +625,27 @@ class TextSelectionHandler {
         throw new Error('Speech synthesizer not ready');
       }
 
-      // Set voice if provided
+      // Set voice if provided, or request current selected voice from background
       if (voice && voice.name && typeof voice.name === 'string') {
-        this._speechSynthesizer.setVoice(voice as { name: string });
+        const voiceSet = this._speechSynthesizer.setVoice(voice as { name: string });
+        devLog('[TTS] Applied voice from message:', voice.name, 'Success:', voiceSet);
+      } else {
+        // No voice provided, get the currently selected voice from background
+        try {
+          const voiceResponse = await chrome.runtime.sendMessage({
+            type: MessageType.GET_VOICE_DATA
+          });
+          
+          if (voiceResponse && voiceResponse.success && voiceResponse.data && voiceResponse.data.selectedVoice) {
+            const selectedVoice = voiceResponse.data.selectedVoice;
+            const voiceSet = this._speechSynthesizer.setVoice(selectedVoice);
+            devLog('[TTS] Applied selected voice from background:', selectedVoice.name, 'Success:', voiceSet);
+          } else {
+            devLog('[TTS] No selected voice available, using default');
+          }
+        } catch (error) {
+          devLog('[TTS] Error getting selected voice from background:', error);
+        }
       }
 
       await this._speechSynthesizer.speak(text);
