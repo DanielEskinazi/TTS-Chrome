@@ -601,18 +601,12 @@ class TextSelectionHandler {
   }
   
   private handleSpeedChange(data: Record<string, unknown>): void {
-    console.log('[ContentScript] handleSpeedChange called with data:', data);
-    
     if (this._speechSynthesizer && data.speed) {
-      console.log('[ContentScript] Calling speechSynthesizer.setRate with:', data.speed);
       const success = this._speechSynthesizer.setRate(data.speed as number);
       
-      console.log('[ContentScript] setRate result:', success);
       if (success) {
         this.showUserFeedback(`Speed: ${data.speed}x`, 'info');
       }
-    } else {
-      console.log('[ContentScript] Cannot handle speed change - speechSynthesizer:', !!this._speechSynthesizer, 'speed:', data.speed);
     }
   }
   

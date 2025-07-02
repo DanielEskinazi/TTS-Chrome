@@ -53,6 +53,10 @@ export class SpeechSynthesizer {
   private lastToggleTime = 0; // For debouncing pause/resume operations
   private utteranceStartTime = 0; // Track when current utterance started
   private isChangingRate = false; // Flag to track rate change operations
+  private rateChangeTimeout: NodeJS.Timeout | null = null; // Track pending rate change
+  private cleanupTimeout: NodeJS.Timeout | null = null; // Track cleanup operations
+  private lastStopTime = 0; // Track when stop was last called for debouncing
+  private readonly START_DEBOUNCE_DELAY = 200; // Minimum ms between stop and start
   private settings: SpeechSettings = {
     rate: 1.0,
     pitch: 1.0,
@@ -247,6 +251,25 @@ export class SpeechSynthesizer {
     // Stop current speech if playing
     if (this.isPlaying) {
       this.stop();
+    }
+
+    // Debouncing: Ensure enough time has passed since last stop
+    if (!this.canStart()) {
+      const waitTime = this.START_DEBOUNCE_DELAY - (Date.now() - this.lastStopTime);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+
+    // Validate API state before starting
+    if (!this.validateAPIState()) {
+      // Try to force reset the API
+      this.forceReset();
+      
+      // Wait for reset and validate again
+      await new Promise(resolve => setTimeout(resolve, 150));
+      
+      if (!this.validateAPIState()) {
+        throw new Error('Web Speech API is in an inconsistent state and cannot be reset');
+      }
     }
 
     // Preprocess text
@@ -531,12 +554,29 @@ export class SpeechSynthesizer {
           if (speechSynthesis.paused) {
             // eslint-disable-next-line no-console
             console.warn('[TTS-Debug] WARNING: Resume may have failed - speechSynthesis.paused is still true');
+            
+            // If speechSynthesis is stuck, force recovery
+            if (!speechSynthesis.speaking && speechSynthesis.paused) {
+              console.warn('[TTS-Debug] API is stuck (not speaking but paused) - forcing recovery');
+              speechSynthesis.cancel(); // Clear stuck state
+              this.isPlaying = false;
+              this.isPaused = false;
+              this.notifyPlaybackState('stopped');
+              return;
+            }
+            
             // Try resume again
             speechSynthesis.resume();
             setTimeout(() => {
               // eslint-disable-next-line no-console
               console.log('[TTS-Debug] Retry resume result - speechSynthesis.paused:', speechSynthesis.paused);
-            }, 50);
+              
+              // Final check - if still stuck, force stop
+              if (!speechSynthesis.speaking && speechSynthesis.paused) {
+                console.error('[TTS-Debug] API permanently stuck - forcing stop');
+                this.stop();
+              }
+            }, 100);
           }
         }, 50);
         
@@ -577,8 +617,8 @@ export class SpeechSynthesizer {
     const now = Date.now();
     const timeSinceLastToggle = now - this.lastToggleTime;
     
-    // Debounce: prevent rapid successive calls (minimum 100ms between operations)
-    if (timeSinceLastToggle < 100) {
+    // Debounce: prevent rapid successive calls (minimum 300ms between operations)
+    if (timeSinceLastToggle < 300) {
       // eslint-disable-next-line no-console
       console.log('[TTS-Debug] TogglePause debounced - too soon since last toggle:', timeSinceLastToggle + 'ms');
       return false;
@@ -597,6 +637,23 @@ export class SpeechSynthesizer {
       timeSinceLastToggle: timeSinceLastToggle + 'ms'
     });
     
+    // Check for inconsistent state and try to recover
+    if (!speechSynthesis.speaking && (this.isPlaying || this.isPaused)) {
+      console.warn('[TTS-Debug] State inconsistency detected - resetting state');
+      console.warn('[TTS-Debug] Internal state:', { isPlaying: this.isPlaying, isPaused: this.isPaused });
+      console.warn('[TTS-Debug] API state:', { speaking: speechSynthesis.speaking, paused: speechSynthesis.paused });
+      
+      // Reset to consistent state
+      this.isPlaying = false;
+      this.isPaused = false;
+      this.notifyPlaybackState('stopped');
+      
+      // Try to clean up any stuck state
+      speechSynthesis.cancel();
+      
+      return false;
+    }
+    
     if (this.isPaused) {
       return this.resume();
     } else if (this.isPlaying) {
@@ -609,7 +666,27 @@ export class SpeechSynthesizer {
   }
 
   stop(): void {
+    // Clear any pending timeouts to prevent interference
+    if (this.rateChangeTimeout) {
+      clearTimeout(this.rateChangeTimeout);
+      this.rateChangeTimeout = null;
+    }
+    
+    if (this.cleanupTimeout) {
+      clearTimeout(this.cleanupTimeout);
+      this.cleanupTimeout = null;
+    }
+    
+    // Reset rate change flag
+    this.isChangingRate = false;
+    
+    // Track stop time for debouncing
+    this.lastStopTime = Date.now();
+    
+    // Single clean cancel - no delayed cleanup that can interfere with new speech
     speechSynthesis.cancel();
+    
+    // Reset all state immediately
     this.speechQueue = [];
     this.currentUtterance = null;
     this.isPlaying = false;
@@ -618,6 +695,30 @@ export class SpeechSynthesizer {
     this.pausedText = null;
     this.currentChunkIndex = 0;
     this.notifyPlaybackState('stopped');
+  }
+
+  // Validate that Web Speech API is in a clean state before starting speech
+  private validateAPIState(): boolean {
+    return !speechSynthesis.speaking && !speechSynthesis.paused && !speechSynthesis.pending;
+  }
+
+  // Force the Web Speech API into a clean state
+  private forceReset(): void {
+    speechSynthesis.cancel();
+    
+    // Give API time to reset
+    setTimeout(() => {
+      if (!this.validateAPIState()) {
+        // API still stuck, try again
+        speechSynthesis.cancel();
+      }
+    }, 100);
+  }
+
+  // Check if enough time has passed since last stop
+  private canStart(): boolean {
+    const timeSinceStop = Date.now() - this.lastStopTime;
+    return timeSinceStop >= this.START_DEBOUNCE_DELAY;
   }
 
   // State management
@@ -634,20 +735,25 @@ export class SpeechSynthesizer {
 
   private notifyPlaybackState(state: PlaybackStateType): void {
     // Send message to background script
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      const message = chrome.runtime.sendMessage({
         type: MessageType.TTS_STATE_CHANGED,
         payload: {
           state: state,
           playbackState: this.getPlaybackState(),
           timestamp: Date.now()
         }
-      }).catch(error => {
-        if (process.env.NODE_ENV === 'development') {
-          // eslint-disable-next-line no-console
-          console.log('Could not notify playback state:', error);
-        }
       });
+      
+      // Only call .catch() if sendMessage returns a Promise
+      if (message && typeof message.catch === 'function') {
+        message.catch(error => {
+          if (process.env.NODE_ENV === 'development') {
+            // eslint-disable-next-line no-console
+            console.log('Could not notify playback state:', error);
+          }
+        });
+      }
     }
   }
 
@@ -691,20 +797,25 @@ export class SpeechSynthesizer {
   }
 
   private notifyError(errorType: ErrorType, originalError: Error | SpeechSynthesisErrorEvent): void {
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      const message = chrome.runtime.sendMessage({
         type: MessageType.TTS_ERROR,
         payload: {
           errorType: errorType,
           error: 'message' in originalError ? originalError.message : originalError.error || 'Unknown error',
           timestamp: Date.now()
         }
-      }).catch(error => {
-        if (process.env.NODE_ENV === 'development') {
-          // eslint-disable-next-line no-console
-          console.log('Could not notify error:', error);
-        }
       });
+      
+      // Only call .catch() if sendMessage returns a Promise
+      if (message && typeof message.catch === 'function') {
+        message.catch(error => {
+          if (process.env.NODE_ENV === 'development') {
+            // eslint-disable-next-line no-console
+            console.log('Could not notify error:', error);
+          }
+        });
+      }
     }
   }
 
@@ -741,19 +852,25 @@ export class SpeechSynthesizer {
     return this.settings.voice;
   }
 
+  private lastRateChangeTime = 0;
+  private readonly RATE_CHANGE_COOLDOWN = 200; // Minimum ms between rate changes
+
   setRate(rate: number): boolean {
-    console.log('[SpeechSynthesizer] setRate called with:', rate);
-    console.log('[SpeechSynthesizer] Current state - isPlaying:', this.isPlaying, 'isPaused:', this.isPaused);
-    
     if (rate >= 0.1 && rate <= 10) {
       this.settings.rate = rate;
       
       // Apply to current speech if playing - brief controlled restart
       if (this.isPlaying && !this.isPaused) {
-        console.log('[SpeechSynthesizer] Applying rate change to active speech');
+        const now = Date.now();
+        const timeSinceLastChange = now - this.lastRateChangeTime;
+        
+        if (timeSinceLastChange < this.RATE_CHANGE_COOLDOWN) {
+          // Still update the setting but don't restart speech yet
+          return true;
+        }
+        
+        this.lastRateChangeTime = now;
         this.applyRateChange(rate);
-      } else {
-        console.log('[SpeechSynthesizer] Not applying rate change - not actively playing');
       }
       
       return true;
@@ -762,52 +879,58 @@ export class SpeechSynthesizer {
   }
 
   private applyRateChange(rate: number): void {
-    // Simple approach: brief controlled restart with new rate
-    // This provides immediate feedback and avoids complex position estimation
+    // Clear any pending timeouts to avoid conflicts with new rate change
+    if (this.rateChangeTimeout) {
+      clearTimeout(this.rateChangeTimeout);
+      this.rateChangeTimeout = null;
+    }
     
-    console.log('[SpeechSynthesizer] applyRateChange - currentUtterance:', !!this.currentUtterance);
-    console.log('[SpeechSynthesizer] applyRateChange - speechQueue length:', this.speechQueue.length);
+    if (this.cleanupTimeout) {
+      clearTimeout(this.cleanupTimeout);
+      this.cleanupTimeout = null;
+    }
     
     if (this.currentUtterance) {
       // Save current state BEFORE cancel changes it
-      const wasPlaying = this.isPlaying;
+      const wasPlaying = this.isPlaying && !this.isPaused;
       const remainingQueue = [...this.speechQueue]; // Copy remaining items
       const currentText = this.currentUtterance.text; // Save current utterance text
-      
-      console.log('[SpeechSynthesizer] Saved state - wasPlaying:', wasPlaying);
-      console.log('[SpeechSynthesizer] Saved state - remainingQueue length:', remainingQueue.length);
-      console.log('[SpeechSynthesizer] Saved state - currentText length:', currentText.length);
       
       // Mark that we're doing a rate change to handle in onEnd
       this.isChangingRate = true;
       
       // Brief pause for rate change feedback
       speechSynthesis.cancel();
-      console.log('[SpeechSynthesizer] Called speechSynthesis.cancel()');
       
       // If we were playing, continue with new rate
       if (wasPlaying) {
-        console.log('[SpeechSynthesizer] Setting timeout to resume speech...');
-        // Small delay to allow speech engine to reset
-        setTimeout(() => {
-          console.log('[SpeechSynthesizer] Timeout fired - attempting to resume');
+        // Use tracked timeout for speech restart
+        this.rateChangeTimeout = setTimeout(() => {
+          // Clear the timeout reference
+          this.rateChangeTimeout = null;
+          
+          // Reset playing state since cancel() will have cleared it
+          this.isPlaying = false;
+          this.isPaused = false;
           
           // Reset the flag
           this.isChangingRate = false;
           
           // Create new queue with current text plus remaining
           const allTexts = [currentText, ...remainingQueue.map(item => item.text)];
-          console.log('[SpeechSynthesizer] Resuming with all texts, count:', allTexts.length);
           
           // Resume playback with new rate
           this.speak(allTexts.join(' '), { rate });
-        }, 100);
+        }, 200); // Slightly longer delay for better stability
       } else {
-        console.log('[SpeechSynthesizer] Not resuming - wasPlaying:', wasPlaying);
-        this.isChangingRate = false;
+        // Use tracked timeout for state cleanup to prevent interference
+        this.cleanupTimeout = setTimeout(() => {
+          this.cleanupTimeout = null;
+          this.isChangingRate = false;
+          this.isPlaying = false;
+          this.isPaused = false;
+        }, 100);
       }
-    } else {
-      console.log('[SpeechSynthesizer] Cannot apply rate change - no current utterance');
     }
   }
 
