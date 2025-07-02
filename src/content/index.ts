@@ -518,6 +518,17 @@ class TextSelectionHandler {
         break;
       }
         
+      case MessageType.UPDATE_TTS_VOLUME: {
+        const volume = (request as any).volume || (request.payload?.volume as number);
+        if (this._speechSynthesizer && typeof volume === 'number') {
+          const success = this._speechSynthesizer.setVolume(volume);
+          sendResponse({ success });
+        } else {
+          sendResponse({ success: false });
+        }
+        break;
+      }
+        
       default:
         // Don't handle other message types here
         break;
@@ -910,6 +921,7 @@ class TextSelectionHandler {
       const text = data.text as string;
       const voice = data.voice as Record<string, unknown> | undefined;
       const rate = data.rate as number | undefined;
+      const volume = data.volume as number | undefined;
       
       if (!text || typeof text !== 'string') {
         throw new Error('No text provided for speech synthesis');
@@ -950,6 +962,12 @@ class TextSelectionHandler {
       if (rate && typeof rate === 'number') {
         this._speechSynthesizer.setRate(rate);
         devLog('[TTS] Applied rate:', rate);
+      }
+      
+      // Set volume if provided
+      if (volume !== undefined && typeof volume === 'number') {
+        this._speechSynthesizer.setVolume(volume);
+        devLog('[TTS] Applied volume:', volume);
       }
 
       await this._speechSynthesizer.speak(text);
@@ -1485,6 +1503,27 @@ class ContentScriptController {
     // Message listener
     chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) => {
       devLog('Content script received message:', message);
+
+      // First, check if TextSelectionHandler can handle this message
+      const ttsMessageTypes = [
+        MessageType.START_SPEECH,
+        MessageType.STOP_SPEECH,
+        MessageType.FORCE_STOP,
+        MessageType.PAUSE_SPEECH,
+        MessageType.RESUME_SPEECH,
+        MessageType.TOGGLE_PAUSE_SPEECH,
+        MessageType.PREVIEW_VOICE,
+        MessageType.CHANGE_SPEED,
+        MessageType.GET_CURRENT_TEXT_LENGTH,
+        MessageType.UPDATE_TTS_VOLUME,
+        MessageType.TTS_FEEDBACK
+      ];
+
+      if (ttsMessageTypes.includes(message.type)) {
+        // Route to TextSelectionHandler
+        this.textSelectionHandler.handleMessage(message, sender, sendResponse);
+        return true; // Keep message channel open
+      }
 
       switch (message.type) {
         case MessageType.SPEAK_SELECTION:

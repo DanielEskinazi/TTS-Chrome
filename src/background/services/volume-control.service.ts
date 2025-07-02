@@ -286,11 +286,22 @@ export class VolumeControlService implements IVolumeControlService {
     // Convert to Chrome TTS range (0.0 - 1.0)
     const chromeVolume = volume / 100;
 
-    // Send volume update to speech synthesizer
-    chrome.runtime.sendMessage({
-      type: 'UPDATE_TTS_VOLUME',
-      volume: chromeVolume
-    });
+    // Send volume update to all active tabs with content scripts
+    try {
+      const tabs = await chrome.tabs.query({ active: true });
+      for (const tab of tabs) {
+        if (tab.id && tab.url && !tab.url.startsWith('chrome://')) {
+          chrome.tabs.sendMessage(tab.id, {
+            type: MessageType.UPDATE_TTS_VOLUME,
+            volume: chromeVolume
+          }).catch(() => {
+            // Ignore errors - content script might not be loaded
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to send volume update to tabs:', error);
+    }
   }
 
   private async getCurrentDomain(): Promise<string | null> {

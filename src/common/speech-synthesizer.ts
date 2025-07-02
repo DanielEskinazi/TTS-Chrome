@@ -69,8 +69,6 @@ export class SpeechSynthesizer {
     this.initializeSync();
     // Load voices in background without blocking
     this.loadVoicesAsync();
-    // Set up volume control message listener
-    this.setupVolumeMessageHandler();
   }
 
   private initializeSync(): void {
@@ -198,20 +196,7 @@ export class SpeechSynthesizer {
     return englishNative || english || systemDefault || voices[0] || null;
   }
 
-  private setupVolumeMessageHandler(): void {
-    // Listen for volume updates from background script
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
-      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        if (message.type === 'UPDATE_TTS_VOLUME') {
-          const success = this.setVolume(message.volume);
-          if (sendResponse) {
-            sendResponse({ success });
-          }
-          return true; // Keep message channel open for async response
-        }
-      });
-    }
-  }
+  // Removed setupVolumeMessageHandler as volume is now handled via content script message handler
 
   private setupSpeechEvents(): void {
     // These will be set on individual utterances

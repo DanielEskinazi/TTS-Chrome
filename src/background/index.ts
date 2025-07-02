@@ -829,11 +829,24 @@ class TTSManager {
       
       // Get current speed
       const speed = this.speedManager.getCurrentSpeed();
+      
+      // Get current volume from VolumeControlService
+      let volume = 1.0; // Default volume
+      if (volumeControlService) {
+        const volumeState = await volumeControlService.handleMessage(
+          { type: MessageType.GET_VOLUME_STATE },
+          sender
+        );
+        if (volumeState && typeof volumeState.effectiveVolume === 'number') {
+          // Convert from 0-100 range to 0-1 range for Web Speech API
+          volume = volumeState.effectiveVolume / 100;
+        }
+      }
 
-      // Send speech command to content script
+      // Send speech command to content script with volume
       await chrome.tabs.sendMessage(tabId, {
         type: MessageType.START_SPEECH,
-        payload: { text: text, voice: voice, rate: speed }
+        payload: { text: text, voice: voice, rate: speed, volume: volume }
       });
 
       // Update state immediately for context menu updates
@@ -1398,7 +1411,29 @@ chrome.runtime.onMessage.addListener(
       if (volumeMessageTypes.includes(message.type)) {
         try {
           volumeControlService.handleMessage(message, sender)
-            .then(response => sendResponse({ success: true, data: response }))
+            .then(response => {
+              sendResponse({ success: true, data: response });
+              
+              // If volume was changed and TTS is active, notify the content script
+              if ([MessageType.SET_VOLUME, MessageType.ADJUST_VOLUME, MessageType.UNMUTE, MessageType.TOGGLE_MUTE].includes(message.type) && 
+                  ttsManager && ttsManager.getState().isActive && ttsManager.getState().currentTabId) {
+                const currentTabId = ttsManager.getState().currentTabId as number;
+                
+                // Get the current effective volume
+                volumeControlService.handleMessage({ type: MessageType.GET_VOLUME_STATE }, sender)
+                  .then(volumeState => {
+                    if (volumeState && typeof volumeState.effectiveVolume === 'number') {
+                      const chromeVolume = volumeState.effectiveVolume / 100;
+                      chrome.tabs.sendMessage(currentTabId, {
+                        type: MessageType.UPDATE_TTS_VOLUME,
+                        volume: chromeVolume
+                      }).catch(error => {
+                        console.warn('Could not send volume update to active tab:', error);
+                      });
+                    }
+                  });
+              }
+            })
             .catch(error => sendResponse({ success: false, error: error.message }));
           return true; // Will respond asynchronously
         } catch (error) {
