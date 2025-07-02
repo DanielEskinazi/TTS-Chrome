@@ -26,15 +26,15 @@
   "commands": {
     "volume-up": {
       "suggested_key": {
-        "default": "Ctrl+Shift+ArrowUp",
-        "mac": "Command+Shift+ArrowUp"
+        "default": "Ctrl+Shift+Up",
+        "mac": "Command+Shift+Up"
       },
       "description": "Increase TTS volume by 10%"
     },
     "volume-down": {
       "suggested_key": {
-        "default": "Ctrl+Shift+ArrowDown",
-        "mac": "Command+Shift+ArrowDown"
+        "default": "Ctrl+Shift+Down",
+        "mac": "Command+Shift+Down"
       },
       "description": "Decrease TTS volume by 10%"
     },
