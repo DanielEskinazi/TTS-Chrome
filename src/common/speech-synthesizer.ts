@@ -69,6 +69,8 @@ export class SpeechSynthesizer {
     this.initializeSync();
     // Load voices in background without blocking
     this.loadVoicesAsync();
+    // Set up volume control message listener
+    this.setupVolumeMessageHandler();
   }
 
   private initializeSync(): void {
@@ -194,6 +196,21 @@ export class SpeechSynthesizer {
     const systemDefault = voices.find(v => v.default);
     
     return englishNative || english || systemDefault || voices[0] || null;
+  }
+
+  private setupVolumeMessageHandler(): void {
+    // Listen for volume updates from background script
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        if (message.type === 'UPDATE_TTS_VOLUME') {
+          const success = this.setVolume(message.volume);
+          if (sendResponse) {
+            sendResponse({ success });
+          }
+          return true; // Keep message channel open for async response
+        }
+      });
+    }
   }
 
   private setupSpeechEvents(): void {
@@ -1150,9 +1167,43 @@ export class SpeechSynthesizer {
   setVolume(volume: number): boolean {
     if (volume >= 0 && volume <= 1) {
       this.settings.volume = volume;
+      
+      // Apply to current speech if playing
+      if (this.currentUtterance && this.isPlaying) {
+        this.applyVolumeToCurrentSpeech(volume);
+      }
+      
       return true;
     }
     return false;
+  }
+
+  private applyVolumeToCurrentSpeech(volume: number): void {
+    if (this.currentUtterance) {
+      // For Web Speech API, we need to restart the utterance with new volume
+      // as there's no way to change volume of an active utterance
+      const wasPlaying = this.isPlaying && !this.isPaused;
+      
+      if (wasPlaying) {
+        const currentText = this.currentUtterance.text;
+        const remainingQueue = [...this.speechQueue];
+        
+        // Brief cancel and restart with new volume
+        speechSynthesis.cancel();
+        
+        setTimeout(() => {
+          // Reset state
+          this.isPlaying = false;
+          this.isPaused = false;
+          
+          // Create new queue with current text plus remaining
+          const allTexts = [currentText, ...remainingQueue.map(item => item.text)];
+          
+          // Resume with new volume
+          this.speak(allTexts.join(' '), { volume });
+        }, 50);
+      }
+    }
   }
 
   getSettings(): SpeechSettings {

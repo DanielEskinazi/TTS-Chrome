@@ -1,6 +1,7 @@
 import { MessageType, Message, MessageResponse } from '@common/types/messages';
 import { devLog } from '@common/dev-utils';
 import { SpeechSynthesizer } from '@common/speech-synthesizer';
+import { VolumeShortcutHandler } from './volume-shortcuts';
 
 interface SelectionInfo {
   text: string;
@@ -1268,6 +1269,7 @@ class TextSelectionHandler {
 class ContentScriptController {
   private highlightedElements: HTMLElement[] = [];
   private textSelectionHandler: TextSelectionHandler;
+  private volumeShortcutHandler: VolumeShortcutHandler;
   private isDisconnected: boolean = false;
   private reconnectionAttempts: number = 0;
   private maxReconnectionAttempts: number = 15; // Fewer attempts than TextSelectionHandler
@@ -1278,6 +1280,11 @@ class ContentScriptController {
     this.textSelectionHandler = new TextSelectionHandler();
     // Set the reference so TextSelectionHandler can call ContentScriptController methods
     this.textSelectionHandler.setContentController(this);
+    
+    // Initialize volume shortcut handler
+    this.volumeShortcutHandler = new VolumeShortcutHandler();
+    this.volumeShortcutHandler.initialize();
+    
     this.initialize();
     
     // Add cleanup on page unload
@@ -1296,6 +1303,11 @@ class ContentScriptController {
     // Clean up text selection handler
     if (this.textSelectionHandler) {
       this.textSelectionHandler.cleanup();
+    }
+    
+    // Clean up volume shortcut handler
+    if (this.volumeShortcutHandler) {
+      this.volumeShortcutHandler.destroy();
     }
     
     devLog('[TTS] ContentScriptController cleanup completed');

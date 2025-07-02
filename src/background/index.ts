@@ -1,6 +1,7 @@
 import { MessageType, Message, MessageResponse } from '@common/types/messages';
 import { VoiceManager, VoiceInfo } from '@common/voice-manager';
 import { SpeedManager } from './speedManager';
+import { VolumeControlService } from './services/volume-control.service';
 // Temporary debug logging - replace devLog with console.log for debugging
 const debugLog = (...args: unknown[]) => {
   if (process.env.NODE_ENV === 'development') {
@@ -1208,7 +1209,7 @@ class TTSManager {
         const tab = await chrome.tabs.get(this.currentTabId).catch(() => null);
         if (tab && tab.url && !tab.url.startsWith('chrome://')) {
           const response = await chrome.tabs.sendMessage(this.currentTabId, {
-            type: 'GET_CURRENT_TEXT_LENGTH'
+            type: MessageType.GET_CURRENT_TEXT_LENGTH
           });
           return response.length || 0;
         }
@@ -1227,6 +1228,7 @@ let contextMenuManager: ContextMenuManager;
 let ttsManager: TTSManager;
 let voiceManager: VoiceManager;
 let speedManager: SpeedManager;
+let volumeControlService: VolumeControlService;
 
 let isInitialized = false;
 let isInitializing = false;
@@ -1259,6 +1261,13 @@ async function initializeExtension(): Promise<boolean> {
       speedManager = new SpeedManager();
       await speedManager.waitForInitialization();
       debugLog('SpeedManager ready');
+    }
+    
+    // Initialize volume control service only if not already created
+    if (!volumeControlService) {
+      debugLog('Initializing VolumeControlService...');
+      volumeControlService = new VolumeControlService();
+      debugLog('VolumeControlService ready');
     }
     
     // Initialize core managers with singleton pattern
@@ -1369,6 +1378,33 @@ chrome.runtime.onMessage.addListener(
       if (selectionResponse !== null) {
         sendResponse({ success: true, data: selectionResponse });
         return true;
+      }
+    }
+
+    // Try volume control service for volume-related messages
+    if (volumeControlService) {
+      const volumeMessageTypes = [
+        MessageType.SET_VOLUME, 
+        MessageType.GET_VOLUME_STATE, 
+        MessageType.MUTE, 
+        MessageType.UNMUTE, 
+        MessageType.TOGGLE_MUTE, 
+        MessageType.ADJUST_VOLUME, 
+        MessageType.SET_DOMAIN_VOLUME, 
+        MessageType.APPLY_PRESET, 
+        MessageType.CLEAR_DOMAIN_VOLUME
+      ];
+      
+      if (volumeMessageTypes.includes(message.type)) {
+        try {
+          volumeControlService.handleMessage(message, sender)
+            .then(response => sendResponse({ success: true, data: response }))
+            .catch(error => sendResponse({ success: false, error: error.message }));
+          return true; // Will respond asynchronously
+        } catch (error) {
+          sendResponse({ success: false, error: (error as Error).message });
+          return true;
+        }
       }
     }
 

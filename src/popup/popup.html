@@ -60,6 +60,31 @@
         </div>
       </section>
       
+      <section class="volume-control">
+        <label for="volumeSlider">Volume: <span id="volumeValue">70%</span></label>
+        <div class="volume-controls">
+          <button id="muteBtn" class="volume-btn" title="Mute/Unmute">
+            🔊
+          </button>
+          <input type="range" id="volumeSlider" 
+                 min="0" max="100" step="1" value="70"
+                 class="volume-slider">
+          <span id="volumePercentage" class="volume-percentage">70%</span>
+        </div>
+        
+        <div class="volume-presets">
+          <button class="volume-preset-btn" data-volume="30">Quiet</button>
+          <button class="volume-preset-btn active" data-volume="70">Normal</button>
+          <button class="volume-preset-btn" data-volume="90">Loud</button>
+        </div>
+        
+        <div id="domainVolumeIndicator" class="domain-indicator" style="display: none;">
+          <span class="badge">Domain</span>
+          <span class="text">Volume set for this site</span>
+          <button id="clearDomainVolumeBtn" class="clear-btn">×</button>
+        </div>
+      </section>
+      
       <section class="tts-controls">
         <button id="playPauseBtn" class="btn btn-play-pause" disabled>
           <span class="btn-icon">▶️</span>
@@ -125,6 +150,12 @@
         </div>
         <div class="shortcut-item">
           <kbd>1</kbd>-<kbd>5</kbd> - Select speed preset (0.75x - 2x)
+        </div>
+        <div class="shortcut-item">
+          <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd> - Volume up/down
+        </div>
+        <div class="shortcut-item">
+          <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> - Toggle mute
         </div>
       </section>
     </main>

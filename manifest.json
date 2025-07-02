@@ -23,5 +23,28 @@
       "run_at": "document_end"
     }
   ],
+  "commands": {
+    "volume-up": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+ArrowUp",
+        "mac": "Command+Shift+ArrowUp"
+      },
+      "description": "Increase TTS volume by 10%"
+    },
+    "volume-down": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+ArrowDown",
+        "mac": "Command+Shift+ArrowDown"
+      },
+      "description": "Decrease TTS volume by 10%"
+    },
+    "toggle-mute": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+M",
+        "mac": "Command+Shift+M"
+      },
+      "description": "Toggle TTS mute"
+    }
+  },
   "options_page": "options.html"
 }

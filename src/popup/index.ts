@@ -51,6 +51,13 @@ class PopupController {
     presetButtons: NodeListOf<HTMLButtonElement>;
     readingTimeDiv: HTMLDivElement;
     timeEstimate: HTMLSpanElement;
+    volumeSlider: HTMLInputElement;
+    volumeValue: HTMLSpanElement;
+    volumePercentage: HTMLSpanElement;
+    muteBtn: HTMLButtonElement;
+    volumePresetButtons: NodeListOf<HTMLButtonElement>;
+    domainVolumeIndicator: HTMLDivElement;
+    clearDomainVolumeBtn: HTMLButtonElement;
   };
 
   private state = {
@@ -78,6 +85,17 @@ class PopupController {
   // Speed slider throttling for real-time updates
   private speedUpdateTimeout: number | null = null;
   private readonly speedUpdateDelay = 150; // ms - throttle speed updates during drag
+  
+  // Volume control state
+  private volumeState = {
+    volume: 70,
+    isMuted: false,
+    domainVolume: null as number | null
+  };
+  
+  // Volume slider throttling
+  private volumeUpdateTimeout: number | null = null;
+  private readonly volumeUpdateDelay = 100; // ms - throttle volume updates during drag
 
   constructor() {
     this.elements = {
@@ -104,6 +122,13 @@ class PopupController {
       presetButtons: document.querySelectorAll('.preset-btn') as NodeListOf<HTMLButtonElement>,
       readingTimeDiv: document.getElementById('readingTime') as HTMLDivElement,
       timeEstimate: document.getElementById('timeEstimate') as HTMLSpanElement,
+      volumeSlider: document.getElementById('volumeSlider') as HTMLInputElement,
+      volumeValue: document.getElementById('volumeValue') as HTMLSpanElement,
+      volumePercentage: document.getElementById('volumePercentage') as HTMLSpanElement,
+      muteBtn: document.getElementById('muteBtn') as HTMLButtonElement,
+      volumePresetButtons: document.querySelectorAll('.volume-preset-btn') as NodeListOf<HTMLButtonElement>,
+      domainVolumeIndicator: document.getElementById('domainVolumeIndicator') as HTMLDivElement,
+      clearDomainVolumeBtn: document.getElementById('clearDomainVolumeBtn') as HTMLButtonElement,
     };
 
     this.initialize();
@@ -115,6 +140,7 @@ class PopupController {
     await this.enumerateAndUpdateVoices();
     await this.loadVoiceData();
     await this.initializeSpeedManager();
+    await this.initializeVolumeManager();
     this.setupEventListeners();
     this.updateUI();
     
@@ -400,6 +426,16 @@ class PopupController {
       btn.addEventListener('click', this.handlePresetClick.bind(this));
     });
     
+    // Volume control listeners
+    this.elements.volumeSlider.addEventListener('input', this.handleVolumeSliderChange.bind(this));
+    this.elements.volumeSlider.addEventListener('change', this.handleVolumeSliderCommit.bind(this));
+    this.elements.muteBtn.addEventListener('click', this.handleMuteToggle.bind(this));
+    this.elements.clearDomainVolumeBtn.addEventListener('click', this.handleClearDomainVolume.bind(this));
+    
+    this.elements.volumePresetButtons.forEach(btn => {
+      btn.addEventListener('click', this.handleVolumePresetClick.bind(this));
+    });
+    
     // Keyboard shortcuts
     document.addEventListener('keydown', this.handleKeyboard.bind(this));
 
@@ -414,6 +450,8 @@ class PopupController {
         this.loadVoiceData();
       } else if (message.type === MessageType.SPEED_CHANGED) {
         this.initializeSpeedManager();
+      } else if (message.type === MessageType.VOLUME_CHANGED) {
+        this.handleVolumeChanged(message.payload || {});
       }
     });
   }
@@ -1161,11 +1199,177 @@ class PopupController {
     }, 2000);
   }
 
+  // Volume control methods
+  private async initializeVolumeManager() {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: MessageType.GET_VOLUME_STATE
+      });
+      
+      if (response && response.data) {
+        this.volumeState.volume = response.data.volume || 70;
+        this.volumeState.isMuted = response.data.isMuted || false;
+        this.volumeState.domainVolume = response.data.domainVolume || null;
+        this.updateVolumeUI();
+      }
+    } catch (error) {
+      debugLog('Error initializing volume manager:', error);
+    }
+  }
+
+  private updateVolumeUI() {
+    // Update slider
+    this.elements.volumeSlider.value = this.volumeState.volume.toString();
+    
+    // Update displays
+    const volumeText = this.volumeState.isMuted ? '0%' : `${this.volumeState.volume}%`;
+    this.elements.volumeValue.textContent = volumeText;
+    this.elements.volumePercentage.textContent = volumeText;
+    
+    // Update mute button
+    this.elements.muteBtn.textContent = this.volumeState.isMuted ? '🔇' : '🔊';
+    
+    // Update preset buttons
+    this.updateVolumePresetButtons(this.volumeState.volume);
+    
+    // Update domain indicator
+    if (this.volumeState.domainVolume !== null) {
+      this.elements.domainVolumeIndicator.style.display = 'flex';
+    } else {
+      this.elements.domainVolumeIndicator.style.display = 'none';
+    }
+  }
+
+  private updateVolumePresetButtons(currentVolume: number) {
+    this.elements.volumePresetButtons.forEach(btn => {
+      const presetVolume = parseInt(btn.dataset.volume || '70');
+      if (Math.abs(presetVolume - currentVolume) < 5) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+  }
+
+  private handleVolumeSliderChange(event: Event) {
+    const volume = parseInt((event.target as HTMLInputElement).value);
+    
+    // Immediate UI feedback
+    this.elements.volumeValue.textContent = `${volume}%`;
+    this.elements.volumePercentage.textContent = `${volume}%`;
+    this.updateVolumePresetButtons(volume);
+    
+    // Throttled volume updates during drag
+    this.scheduleVolumeUpdate(volume);
+  }
+
+  private scheduleVolumeUpdate(volume: number) {
+    // Clear any pending volume update
+    if (this.volumeUpdateTimeout !== null) {
+      clearTimeout(this.volumeUpdateTimeout);
+    }
+    
+    // Schedule new volume update with throttling
+    this.volumeUpdateTimeout = window.setTimeout(async () => {
+      try {
+        await chrome.runtime.sendMessage({
+          type: MessageType.SET_VOLUME,
+          volume: volume,
+          options: { smooth: true }
+        });
+        this.volumeState.volume = volume;
+        debugLog('Real-time volume update:', volume);
+      } catch (error) {
+        debugLog('Real-time volume update failed:', error);
+      }
+      this.volumeUpdateTimeout = null;
+    }, this.volumeUpdateDelay);
+  }
+
+  private async handleVolumeSliderCommit(event: Event) {
+    const volume = parseInt((event.target as HTMLInputElement).value);
+    
+    // Clear any pending throttled update
+    if (this.volumeUpdateTimeout !== null) {
+      clearTimeout(this.volumeUpdateTimeout);
+      this.volumeUpdateTimeout = null;
+    }
+    
+    // Final volume commit
+    this.volumeState.volume = volume;
+    await this.setVolume(volume);
+  }
+
+  private async setVolume(volume: number) {
+    try {
+      await chrome.runtime.sendMessage({
+        type: MessageType.SET_VOLUME,
+        volume: volume,
+        options: { smooth: true }
+      });
+      
+      this.showTemporaryMessage(`Volume set to ${volume}%`);
+    } catch (error) {
+      debugLog('Error setting volume:', error);
+    }
+  }
+
+  private async handleMuteToggle() {
+    try {
+      await chrome.runtime.sendMessage({
+        type: MessageType.TOGGLE_MUTE
+      });
+      
+      // Update UI based on response
+      await this.initializeVolumeManager();
+    } catch (error) {
+      debugLog('Error toggling mute:', error);
+    }
+  }
+
+  private async handleVolumePresetClick(event: Event) {
+    const volume = parseInt((event.target as HTMLButtonElement).dataset.volume || '70');
+    
+    // Update UI immediately
+    this.elements.volumeSlider.value = volume.toString();
+    this.elements.volumeValue.textContent = `${volume}%`;
+    this.elements.volumePercentage.textContent = `${volume}%`;
+    this.updateVolumePresetButtons(volume);
+    
+    await this.setVolume(volume);
+  }
+
+  private async handleClearDomainVolume() {
+    try {
+      await chrome.runtime.sendMessage({
+        type: MessageType.CLEAR_DOMAIN_VOLUME
+      });
+      
+      this.volumeState.domainVolume = null;
+      this.elements.domainVolumeIndicator.style.display = 'none';
+      this.showTemporaryMessage('Domain volume cleared');
+    } catch (error) {
+      debugLog('Error clearing domain volume:', error);
+    }
+  }
+
+  private handleVolumeChanged(message: { volume?: number; isMuted?: boolean }): void {
+    if (message.volume !== undefined) {
+      this.volumeState.volume = message.volume;
+      this.volumeState.isMuted = message.isMuted || false;
+      this.updateVolumeUI();
+    }
+  }
+
   // Cleanup method to prevent memory leaks
   public cleanup() {
     if (this.speedUpdateTimeout !== null) {
       clearTimeout(this.speedUpdateTimeout);
       this.speedUpdateTimeout = null;
+    }
+    if (this.volumeUpdateTimeout !== null) {
+      clearTimeout(this.volumeUpdateTimeout);
+      this.volumeUpdateTimeout = null;
     }
   }
 }
