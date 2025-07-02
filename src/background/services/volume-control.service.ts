@@ -27,12 +27,14 @@ export class VolumeControlService implements IVolumeControlService {
   private storageDebounceTimer?: number;
 
   constructor() {
+    console.log('[VolumeControl] Initializing VolumeControlService');
     this.loadVolumeState();
   }
 
   async setVolume(volume: number, options: SetVolumeOptions = {}): Promise<void> {
     // Validate volume range
     volume = Math.max(VOLUME_CONSTRAINTS.MIN, Math.min(VOLUME_CONSTRAINTS.MAX, volume));
+    console.log('[VolumeControl] Setting volume to:', volume, 'options:', options);
 
     const oldVolume = this.state.globalVolume;
     this.state.globalVolume = volume;
@@ -174,13 +176,15 @@ export class VolumeControlService implements IVolumeControlService {
 
       case MessageType.GET_VOLUME_STATE: {
         const domain = message.domain || (message.payload?.domain as string);
-        return {
+        const result = {
           volume: this.state.globalVolume,
           isMuted: this.state.isMuted,
           effectiveVolume: this.getCurrentEffectiveVolume(domain),
           domainVolume: domain ? this.state.domainOverrides.get(domain) : null,
           presets: this.state.volumePresets
         };
+        console.log('[VolumeControl] Returning volume state:', result);
+        return result;
       }
 
       case MessageType.MUTE:
@@ -330,6 +334,7 @@ export class VolumeControlService implements IVolumeControlService {
   private async loadVolumeState(): Promise<void> {
     try {
       const result = await chrome.storage.sync.get(['volumeSettings']);
+      console.log('[VolumeControl] Loaded storage:', result);
       if (result.volumeSettings) {
         const data: VolumeStorageData = result.volumeSettings;
         this.state.globalVolume = data.globalVolume || VOLUME_CONSTRAINTS.DEFAULT;
@@ -340,6 +345,9 @@ export class VolumeControlService implements IVolumeControlService {
         if (data.domainVolumes) {
           this.state.domainOverrides = new Map(Object.entries(data.domainVolumes));
         }
+        console.log('[VolumeControl] Volume state loaded:', this.state);
+      } else {
+        console.log('[VolumeControl] No saved volume settings, using defaults');
       }
     } catch (error) {
       console.error('Failed to load volume state:', error);

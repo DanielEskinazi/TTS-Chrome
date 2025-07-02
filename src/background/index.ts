@@ -837,10 +837,14 @@ class TTSManager {
           { type: MessageType.GET_VOLUME_STATE },
           sender
         );
+        console.log('[TTSManager] Got volume state:', volumeState);
         if (volumeState && typeof volumeState.effectiveVolume === 'number') {
           // Convert from 0-100 range to 0-1 range for Web Speech API
           volume = volumeState.effectiveVolume / 100;
+          console.log('[TTSManager] Using volume:', volume, 'from effective volume:', volumeState.effectiveVolume);
         }
+      } else {
+        console.log('[TTSManager] VolumeControlService not available, using default volume');
       }
 
       // Send speech command to content script with volume

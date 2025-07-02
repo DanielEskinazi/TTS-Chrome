@@ -965,9 +965,13 @@ class TextSelectionHandler {
       }
       
       // Set volume if provided
+      console.log('[TTS] Volume parameter received:', volume, 'type:', typeof volume);
       if (volume !== undefined && typeof volume === 'number') {
-        this._speechSynthesizer.setVolume(volume);
+        const volumeSet = this._speechSynthesizer.setVolume(volume);
+        console.log('[TTS] Applied volume:', volume, 'Success:', volumeSet);
         devLog('[TTS] Applied volume:', volume);
+      } else {
+        console.log('[TTS] No volume parameter provided, using default');
       }
 
       await this._speechSynthesizer.speak(text);
