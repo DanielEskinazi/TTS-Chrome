@@ -51,6 +51,8 @@ export class SpeechSynthesizer {
   private pausedText: string | null = null;
   private currentChunkIndex = 0;
   private lastToggleTime = 0; // For debouncing pause/resume operations
+  private utteranceStartTime = 0; // Track when current utterance started
+  private isChangingRate = false; // Flag to track rate change operations
   private settings: SpeechSettings = {
     rate: 1.0,
     pitch: 1.0,
@@ -199,11 +201,16 @@ export class SpeechSynthesizer {
     };
 
     this.onEnd = () => {
-      this.isPlaying = false;
-      this.isPaused = false;
-      this.currentUtterance = null;
-      this.processQueue();
-      this.notifyPlaybackState('ended');
+      // Don't change playing state if we're changing rate
+      if (!this.isChangingRate) {
+        this.isPlaying = false;
+        this.isPaused = false;
+        this.currentUtterance = null;
+        this.processQueue();
+        this.notifyPlaybackState('ended');
+      } else {
+        console.log('[SpeechSynthesizer] onEnd called during rate change - preserving state');
+      }
     };
 
     this.onError = (event: SpeechSynthesisErrorEvent) => {
@@ -735,12 +742,18 @@ export class SpeechSynthesizer {
   }
 
   setRate(rate: number): boolean {
+    console.log('[SpeechSynthesizer] setRate called with:', rate);
+    console.log('[SpeechSynthesizer] Current state - isPlaying:', this.isPlaying, 'isPaused:', this.isPaused);
+    
     if (rate >= 0.1 && rate <= 10) {
       this.settings.rate = rate;
       
-      // Apply to current utterance if playing
+      // Apply to current speech if playing - brief controlled restart
       if (this.isPlaying && !this.isPaused) {
-        this.applyRateToCurrentUtterance(rate);
+        console.log('[SpeechSynthesizer] Applying rate change to active speech');
+        this.applyRateChange(rate);
+      } else {
+        console.log('[SpeechSynthesizer] Not applying rate change - not actively playing');
       }
       
       return true;
@@ -748,52 +761,53 @@ export class SpeechSynthesizer {
     return false;
   }
 
-  private applyRateToCurrentUtterance(rate: number): void {
-    // Note: Web Speech API doesn't support changing rate mid-utterance
-    // We need to implement a workaround
+  private applyRateChange(rate: number): void {
+    // Simple approach: brief controlled restart with new rate
+    // This provides immediate feedback and avoids complex position estimation
+    
+    console.log('[SpeechSynthesizer] applyRateChange - currentUtterance:', !!this.currentUtterance);
+    console.log('[SpeechSynthesizer] applyRateChange - speechQueue length:', this.speechQueue.length);
+    
     if (this.currentUtterance) {
-      // Store current position
-      const currentPosition = this.estimateCurrentPosition();
+      // Save current state BEFORE cancel changes it
+      const wasPlaying = this.isPlaying;
+      const remainingQueue = [...this.speechQueue]; // Copy remaining items
+      const currentText = this.currentUtterance.text; // Save current utterance text
       
-      // Stop current utterance
+      console.log('[SpeechSynthesizer] Saved state - wasPlaying:', wasPlaying);
+      console.log('[SpeechSynthesizer] Saved state - remainingQueue length:', remainingQueue.length);
+      console.log('[SpeechSynthesizer] Saved state - currentText length:', currentText.length);
+      
+      // Mark that we're doing a rate change to handle in onEnd
+      this.isChangingRate = true;
+      
+      // Brief pause for rate change feedback
       speechSynthesis.cancel();
+      console.log('[SpeechSynthesizer] Called speechSynthesis.cancel()');
       
-      // Resume from position with new rate
-      this.resumeFromPosition(currentPosition, rate);
-    }
-  }
-
-  private utteranceStartTime = 0;
-
-  private estimateCurrentPosition(): number {
-    // Estimate position based on time elapsed and rate
-    if (this.utteranceStartTime && this.currentUtterance) {
-      const elapsed = Date.now() - this.utteranceStartTime;
-      const estimatedCharsSpoken = (elapsed / 1000) * this.settings.rate * 10; // Rough estimate
-      return Math.min(estimatedCharsSpoken, this.currentUtterance.text.length);
-    }
-    return 0;
-  }
-
-  private resumeFromPosition(position: number, rate: number): void {
-    if (this.currentUtterance && position < this.currentUtterance.text.length) {
-      const remainingText = this.currentUtterance.text.substring(position);
-      
-      // Create new utterance with remaining text
-      const utterance = new SpeechSynthesisUtterance(remainingText);
-      utterance.voice = this.settings.voice;
-      utterance.rate = rate;
-      utterance.pitch = this.settings.pitch;
-      utterance.volume = this.settings.volume;
-      
-      // Copy event handlers
-      utterance.onend = this.currentUtterance.onend;
-      utterance.onerror = this.currentUtterance.onerror;
-      
-      // Update current utterance and speak
-      this.currentUtterance = utterance;
-      this.utteranceStartTime = Date.now();
-      speechSynthesis.speak(utterance);
+      // If we were playing, continue with new rate
+      if (wasPlaying) {
+        console.log('[SpeechSynthesizer] Setting timeout to resume speech...');
+        // Small delay to allow speech engine to reset
+        setTimeout(() => {
+          console.log('[SpeechSynthesizer] Timeout fired - attempting to resume');
+          
+          // Reset the flag
+          this.isChangingRate = false;
+          
+          // Create new queue with current text plus remaining
+          const allTexts = [currentText, ...remainingQueue.map(item => item.text)];
+          console.log('[SpeechSynthesizer] Resuming with all texts, count:', allTexts.length);
+          
+          // Resume playback with new rate
+          this.speak(allTexts.join(' '), { rate });
+        }, 100);
+      } else {
+        console.log('[SpeechSynthesizer] Not resuming - wasPlaying:', wasPlaying);
+        this.isChangingRate = false;
+      }
+    } else {
+      console.log('[SpeechSynthesizer] Cannot apply rate change - no current utterance');
     }
   }
 

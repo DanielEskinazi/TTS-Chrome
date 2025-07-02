@@ -341,8 +341,12 @@ class PopupController {
       
       debugLog('Popup: GET_SPEED_INFO response:', response);
       
-      if (response && response.speedInfo) {
-        this.updateSpeedUI(response.speedInfo);
+      // Handle wrapped response format: { success: true, data: { speedInfo: {...} } }
+      // or direct format: { speedInfo: {...} }
+      const speedInfo = response?.data?.speedInfo || response?.speedInfo;
+      
+      if (speedInfo) {
+        this.updateSpeedUI(speedInfo);
         debugLog('Popup: Speed manager initialized successfully');
       } else if (response && response.error) {
         // Check if it's an initialization error
