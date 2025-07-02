@@ -1,5 +1,6 @@
 import { MessageType, Message, MessageResponse } from '@common/types/messages';
 import { VoiceManager, VoiceInfo } from '@common/voice-manager';
+import { SpeedManager } from './speedManager';
 // Temporary debug logging - replace devLog with console.log for debugging
 const debugLog = (...args: unknown[]) => {
   if (process.env.NODE_ENV === 'development') {
@@ -603,9 +604,11 @@ class TTSManager {
   private forceStopAttempts = 0;
   private contextMenuManager: ContextMenuManager | null = null;
   private voiceManager: VoiceManager;
+  private speedManager: SpeedManager;
 
-  constructor(voiceManager: VoiceManager) {
+  constructor(voiceManager: VoiceManager, speedManager: SpeedManager) {
     this.voiceManager = voiceManager;
+    this.speedManager = speedManager;
     this.init();
   }
 
@@ -680,6 +683,77 @@ class TTSManager {
         }
         return { success: false };
         
+      case MessageType.GET_SPEED_INFO: {
+        const speedInfo = await this.speedManager.getSpeedInfo();
+        return {
+          speedInfo: speedInfo
+        };
+      }
+        
+      case MessageType.SET_SPEED:
+        if (request.data && typeof request.data.speed === 'number') {
+          const set = await this.speedManager.setSpeed(request.data.speed);
+          
+          // If speed was changed and TTS is active, notify the content script
+          if (set && this.isActive && this.currentTabId) {
+            try {
+              await chrome.tabs.sendMessage(this.currentTabId, {
+                type: MessageType.CHANGE_SPEED,
+                data: { speed: request.data.speed }
+              });
+              console.log('Speed change sent to active tab:', this.currentTabId, 'new speed:', request.data.speed);
+            } catch (error) {
+              console.warn('Could not send speed change to tab:', error);
+            }
+          }
+          
+          return { success: set };
+        }
+        return { success: false };
+        
+      case MessageType.INCREMENT_SPEED:
+        await this.speedManager.incrementSpeed();
+        
+        // If TTS is active, notify the content script of the new speed
+        if (this.isActive && this.currentTabId) {
+          const currentSpeed = this.speedManager.getCurrentSpeed();
+          try {
+            await chrome.tabs.sendMessage(this.currentTabId, {
+              type: MessageType.CHANGE_SPEED,
+              data: { speed: currentSpeed }
+            });
+            console.log('Speed increment sent to active tab:', this.currentTabId, 'new speed:', currentSpeed);
+          } catch (error) {
+            console.warn('Could not send speed increment to tab:', error);
+          }
+        }
+        
+        return { success: true };
+        
+      case MessageType.DECREMENT_SPEED:
+        await this.speedManager.decrementSpeed();
+        
+        // If TTS is active, notify the content script of the new speed
+        if (this.isActive && this.currentTabId) {
+          const currentSpeed = this.speedManager.getCurrentSpeed();
+          try {
+            await chrome.tabs.sendMessage(this.currentTabId, {
+              type: MessageType.CHANGE_SPEED,
+              data: { speed: currentSpeed }
+            });
+            console.log('Speed decrement sent to active tab:', this.currentTabId, 'new speed:', currentSpeed);
+          } catch (error) {
+            console.warn('Could not send speed decrement to tab:', error);
+          }
+        }
+        
+        return { success: true };
+        
+      case MessageType.GET_CURRENT_TEXT_LENGTH: {
+        const length = await this.getCurrentTextLength();
+        return { length: length };
+      }
+        
       default:
         throw new Error('Unknown TTS message type');
     }
@@ -751,11 +825,14 @@ class TTSManager {
 
       // Get voice from data or use default
       const voice = data.voice || this.voiceManager.getSelectedVoice();
+      
+      // Get current speed
+      const speed = this.speedManager.getCurrentSpeed();
 
       // Send speech command to content script
       await chrome.tabs.sendMessage(tabId, {
         type: MessageType.START_SPEECH,
-        payload: { text: text, voice: voice }
+        payload: { text: text, voice: voice, rate: speed }
       });
 
       // Update state immediately for context menu updates
@@ -794,14 +871,20 @@ class TTSManager {
       this.clearStopTimeout();
 
       if (this.currentTabId) {
-        // Send stop command to content script
-        await chrome.tabs.sendMessage(this.currentTabId, {
-          type: MessageType.STOP_SPEECH,
-          payload: { source: source }
-        }).catch(error => {
-          console.warn('Could not send stop message to tab:', error);
-          // Tab might be closed or unresponsive, continue with cleanup
-        });
+        // Send stop command to content script with robust error handling
+        try {
+          // First check if tab still exists
+          const tab = await chrome.tabs.get(this.currentTabId).catch(() => null);
+          if (tab && tab.url && !tab.url.startsWith('chrome://')) {
+            await chrome.tabs.sendMessage(this.currentTabId, {
+              type: MessageType.STOP_SPEECH,
+              payload: { source: source }
+            });
+          }
+        } catch (error) {
+          // Silently handle expected errors (tab closed, content script not ready, etc.)
+          debugLog('Stop message not sent to tab (expected):', (error as Error).message);
+        }
       }
 
       // Reset state
@@ -1116,6 +1199,26 @@ class TTSManager {
       hasTimeout: this.stopTimeout !== null
     };
   }
+  
+  private async getCurrentTextLength(): Promise<number> {
+    // Get length of currently selected or playing text
+    if (this.currentTabId) {
+      try {
+        // Check if tab exists and is accessible
+        const tab = await chrome.tabs.get(this.currentTabId).catch(() => null);
+        if (tab && tab.url && !tab.url.startsWith('chrome://')) {
+          const response = await chrome.tabs.sendMessage(this.currentTabId, {
+            type: 'GET_CURRENT_TEXT_LENGTH'
+          });
+          return response.length || 0;
+        }
+      } catch (error) {
+        // Silently handle expected errors
+        debugLog('Text length not available (expected):', (error as Error).message);
+      }
+    }
+    return 0;
+  }
 }
 
 // Initialize selection manager and context menu manager with error handling
@@ -1123,29 +1226,99 @@ let selectionManager: SelectionManager;
 let contextMenuManager: ContextMenuManager;
 let ttsManager: TTSManager;
 let voiceManager: VoiceManager;
+let speedManager: SpeedManager;
 
-try {
-  // Initialize voice manager first
-  voiceManager = new VoiceManager();
-  voiceManager.init().catch(error => {
-    console.error('Failed to initialize voice manager:', error);
-  });
-  
-  selectionManager = new SelectionManager();
-  contextMenuManager = new ContextMenuManager(selectionManager, voiceManager);
-  ttsManager = new TTSManager(voiceManager);
-  
-  // Link the managers for bi-directional communication
-  selectionManager.setContextMenuManager(contextMenuManager);
-  contextMenuManager.setTTSManager(ttsManager);
-  ttsManager.setContextMenuManager(contextMenuManager);
-  
-  debugLog('Background script loaded and ready');
-  debugLog('Service worker started successfully');
-} catch (error) {
-  console.error('Failed to initialize background script:', error);
-  debugLog('Service worker initialization failed:', error);
+let isInitialized = false;
+let isInitializing = false;
+
+async function initializeExtension(): Promise<boolean> {
+  // Prevent multiple simultaneous initializations
+  if (isInitialized || isInitializing) {
+    debugLog('Extension already initialized or initializing, skipping');
+    return isInitialized;
+  }
+
+  isInitializing = true;
+  debugLog('Initializing extension...');
+
+  try {
+    // Initialize managers with error isolation - create singletons
+    if (!voiceManager) {
+      debugLog('Initializing VoiceManager...');
+      voiceManager = new VoiceManager();
+      
+      // Initialize voice manager in background - don't block on it
+      voiceManager.init().catch(error => {
+        console.warn('Voice manager initialization failed (non-critical):', error);
+      });
+    }
+    
+    // Initialize speed manager only if not already created
+    if (!speedManager) {
+      debugLog('Initializing SpeedManager...');
+      speedManager = new SpeedManager();
+      await speedManager.waitForInitialization();
+      debugLog('SpeedManager ready');
+    }
+    
+    // Initialize core managers with singleton pattern
+    if (!selectionManager) {
+      selectionManager = new SelectionManager();
+    }
+    if (!contextMenuManager) {
+      contextMenuManager = new ContextMenuManager(selectionManager, voiceManager);
+    }
+    if (!ttsManager) {
+      ttsManager = new TTSManager(voiceManager, speedManager);
+    }
+    
+    // Set up relationships (safe to call multiple times)
+    selectionManager.setContextMenuManager(contextMenuManager);
+    contextMenuManager.setTTSManager(ttsManager);
+    ttsManager.setContextMenuManager(contextMenuManager);
+    
+    // Create context menu (idempotent operation)
+    try {
+      contextMenuManager.createContextMenu();
+    } catch (error) {
+      console.warn('Context menu creation failed (non-critical):', error);
+    }
+    
+    isInitialized = true;
+    debugLog('Extension initialization completed successfully');
+    return true;
+    
+  } catch (error) {
+    console.error('Critical initialization error:', error);
+    return false;
+  } finally {
+    isInitializing = false;
+  }
 }
+
+// Simple service worker lifecycle - let Chrome handle restarts naturally
+// Handle service worker startup (browser starts or worker restarts)
+chrome.runtime.onStartup.addListener(() => {
+  debugLog('Browser started, initializing extension...');
+  // Simple one-time initialization on browser startup
+  if (!isInitialized) {
+    initializeExtension();
+  }
+});
+
+// Handle service worker suspension/wake (clean shutdown)
+chrome.runtime.onSuspend?.addListener(() => {
+  debugLog('Service worker being suspended...');
+  // Clean up any pending operations
+  if (ttsManager) {
+    ttsManager.stopTTS({ source: 'suspension', force: true }).catch(() => {
+      // Ignore errors during suspension
+    });
+  }
+});
+
+// Simple initialization - no aggressive restart detection
+initializeExtension();
 
 // Service worker lifecycle
 chrome.runtime.onInstalled.addListener((details) => {
@@ -1170,7 +1343,25 @@ chrome.runtime.onInstalled.addListener((details) => {
 chrome.runtime.onMessage.addListener(
   (message: Message, sender, sendResponse: (response: MessageResponse) => void) => {
     debugLog('Background received message:', message, 'from:', sender);
-    debugLog('Background received message:', message, 'from:', sender);
+
+    // If extension is not initialized, either wait or trigger initialization
+    if (!isInitialized) {
+      // For critical requests, try to initialize first
+      if (message.type === MessageType.PING || message.type === MessageType.GET_STATE) {
+        // Allow these through even if not fully initialized
+      } else {
+        // For other requests, trigger initialization and return error
+        initializeExtension().catch(error => {
+          console.error('Failed to initialize during message handling:', error);
+        });
+        
+        sendResponse({ 
+          success: false, 
+          error: 'Extension is initializing, please try again in a moment' 
+        });
+        return true;
+      }
+    }
 
     // Try selection manager first (with safety check)
     if (selectionManager) {
@@ -1182,11 +1373,20 @@ chrome.runtime.onMessage.addListener(
     }
 
     // Try TTS manager for TTS-related messages
-    if (ttsManager) {
+    if (ttsManager && speedManager) {
       try {
+        // For speed-related messages, ensure SpeedManager is ready
+        if ([MessageType.GET_SPEED_INFO, MessageType.SET_SPEED, MessageType.INCREMENT_SPEED, MessageType.DECREMENT_SPEED].includes(message.type)) {
+          if (!speedManager.isReady()) {
+            sendResponse({ success: false, error: 'SpeedManager not yet initialized' });
+            return true;
+          }
+        }
+        
         if ([MessageType.START_TTS, MessageType.STOP_TTS, MessageType.FORCE_STOP_TTS, MessageType.PAUSE_TTS, 
              MessageType.RESUME_TTS, MessageType.TOGGLE_PAUSE_TTS, MessageType.TTS_STATE_CHANGED, MessageType.TTS_ERROR, MessageType.GET_TTS_STATE,
-             MessageType.GET_VOICE_DATA, MessageType.SELECT_VOICE, MessageType.PREVIEW_VOICE, MessageType.UPDATE_VOICE_DATA].includes(message.type)) {
+             MessageType.GET_VOICE_DATA, MessageType.SELECT_VOICE, MessageType.PREVIEW_VOICE, MessageType.UPDATE_VOICE_DATA,
+             MessageType.GET_SPEED_INFO, MessageType.SET_SPEED, MessageType.INCREMENT_SPEED, MessageType.DECREMENT_SPEED, MessageType.GET_CURRENT_TEXT_LENGTH].includes(message.type)) {
           ttsManager.handleMessage(message, sender)
             .then(response => sendResponse({ success: true, data: response }))
             .catch(error => sendResponse({ success: false, error: error.message }));
@@ -1200,6 +1400,11 @@ chrome.runtime.onMessage.addListener(
 
     // Handle other message types
     switch (message.type) {
+      case MessageType.PING:
+        // Handle ping requests from content scripts for reconnection
+        sendResponse({ success: true, pong: true, initialized: isInitialized });
+        return true;
+
       case MessageType.GET_STATE:
         handleGetState(sendResponse);
         return true; // Will respond asynchronously

@@ -1,4 +1,4 @@
-import { MessageType, Message } from '@common/types/messages';
+import { MessageType, Message, MessageResponse } from '@common/types/messages';
 import { devLog } from '@common/dev-utils';
 import { SpeechSynthesizer } from '@common/speech-synthesizer';
 
@@ -21,6 +21,13 @@ class TextSelectionHandler {
   private _speechSynthesizer: SpeechSynthesizer | null = null;
   private lastShortcutTime = 0;
   private contentController: ContentScriptController | null = null;
+  private isDisconnected: boolean = false;
+  private reconnectionAttempts: number = 0;
+  private maxReconnectionAttempts: number = 20; // Allow more attempts
+  private reconnectionTimeout: NodeJS.Timeout | null = null;
+  private healthCheckInterval: NodeJS.Timeout | null = null;
+  private messageQueue: Message[] = [];
+  private isReconnecting: boolean = false;
 
   public setContentController(controller: ContentScriptController): void {
     this.contentController = controller;
@@ -70,8 +77,26 @@ class TextSelectionHandler {
     devLog('TTS Text Selection Handler initialized');
     if (process.env.NODE_ENV === 'development') {
       // eslint-disable-next-line no-console
-      console.log('🔊 TTS Text Selection Handler initialized - Extension is working! [VERSION: KEYBOARD-FIX-v6]');
+      console.log('🔊 TTS Text Selection Handler initialized - Extension is working! [VERSION: CONTEXT-FIX-v7]');
     }
+    
+    // Start proactive health monitoring
+    this.startHealthMonitoring();
+  }
+
+  public cleanup(): void {
+    // Stop all monitoring and timeouts
+    this.stopHealthMonitoring();
+    
+    // Clear message queue
+    this.messageQueue = [];
+    
+    // Reset state
+    this.isDisconnected = false;
+    this.isReconnecting = false;
+    this.reconnectionAttempts = 0;
+    
+    devLog('[TTS] TextSelectionHandler cleanup completed');
   }
 
   private handleSelectionChange() {
@@ -204,7 +229,7 @@ class TextSelectionHandler {
     
     // Send start TTS message to background
     try {
-      await chrome.runtime.sendMessage({
+      await this.safeMessageToBackground({
         type: MessageType.START_TTS,
         payload: {
           text: selectedText
@@ -231,7 +256,7 @@ class TextSelectionHandler {
     
     // Send stop TTS message to background
     try {
-      await chrome.runtime.sendMessage({
+      await this.safeMessageToBackground({
         type: MessageType.STOP_TTS,
         payload: {
           source: 'keyboard'
@@ -273,7 +298,7 @@ class TextSelectionHandler {
 
   private setupKeyboardShortcuts() {
     // Register keyboard shortcuts with the extension
-    chrome.runtime.sendMessage({
+    this.safeMessageToBackground({
       type: MessageType.CONTENT_READY, // Reuse existing message type for simplicity
       payload: {
         shortcuts: [
@@ -398,7 +423,7 @@ class TextSelectionHandler {
   }
 
   private notifySelectionChange() {
-    chrome.runtime.sendMessage({
+    this.safeMessageToBackground({
       type: MessageType.SELECTION_CHANGED,
       payload: {
         text: this.selectionText,
@@ -418,7 +443,7 @@ class TextSelectionHandler {
     this.selectionInfo = null;
     
     // Notify background script
-    chrome.runtime.sendMessage({
+    this.safeMessageToBackground({
       type: MessageType.SELECTION_CLEARED
     }).catch(error => {
       devLog('Error sending selection cleared message:', error);
@@ -480,6 +505,17 @@ class TextSelectionHandler {
         this.handlePreviewVoice(request.payload || {});
         sendResponse({ success: true });
         break;
+        
+      case MessageType.CHANGE_SPEED:
+        this.handleSpeedChange(request.data || {});
+        sendResponse({ success: true });
+        break;
+        
+      case MessageType.GET_CURRENT_TEXT_LENGTH: {
+        const length = this.getCurrentTextLength();
+        sendResponse({ length: length });
+        break;
+      }
         
       default:
         // Don't handle other message types here
@@ -587,31 +623,292 @@ class TextSelectionHandler {
     };
     return colors[type] || colors.info;
   }
+  
+  private handleSpeedChange(data: Record<string, unknown>): void {
+    if (this._speechSynthesizer && data.speed) {
+      const success = this._speechSynthesizer.setRate(data.speed as number);
+      
+      if (success) {
+        this.showUserFeedback(`Speed: ${data.speed}x`, 'info');
+      }
+    }
+  }
+  
+  private getCurrentTextLength(): number {
+    if (this._speechSynthesizer) {
+      const state = this._speechSynthesizer.getPlaybackState();
+      if (state.currentText) {
+        return state.currentText.length;
+      }
+    }
+    
+    // Fall back to current selection
+    if (this.selectionText) {
+      return this.selectionText.length;
+    }
+    
+    return 0;
+  }
 
   private handleSelectionError(error: Error, context: string) {
     devLog('Selection error in', context, ':', error);
     
-    // Report error to background script
-    chrome.runtime.sendMessage({
-      type: MessageType.SELECTION_ERROR,
-      payload: {
-        error: error.message,
-        context: context,
-        url: window.location.href,
-        userAgent: navigator.userAgent
-      }
-    }).catch(() => {
-      // Ignore messaging errors during error handling
-    });
+    // Check if this is a context invalidation error to prevent recursive errors
+    const isContextError = error.message.includes('Extension context invalidated') || 
+                          error.message.includes('Receiving end does not exist');
+    
+    // Only try to report to background if it's not a context/communication error
+    if (!isContextError) {
+      this.safeMessageToBackground({
+        type: MessageType.SELECTION_ERROR,
+        payload: {
+          error: error.message,
+          context: context,
+          url: window.location.href,
+          userAgent: navigator.userAgent
+        }
+      }).catch((reportError) => {
+        devLog('[TTS] Failed to report selection error to background:', reportError);
+      });
+    } else {
+      // For context errors, just log locally and mark extension as disconnected
+      console.warn('[TTS] Extension context invalidated, background communication lost');
+      this.markAsDisconnected();
+    }
     
     // Reset selection state
     this.clearSelection();
+  }
+
+  private markAsDisconnected() {
+    // Mark extension as disconnected to prevent further communication attempts
+    // This helps avoid recursive errors when background is unavailable
+    if (!this.isDisconnected) {
+      this.isDisconnected = true;
+      this.reconnectionAttempts = 0;
+      devLog('[TTS] Marked extension as disconnected due to context invalidation');
+      
+      // Stop health monitoring while disconnected
+      this.stopHealthMonitoring();
+      
+      // Show user feedback about disconnection
+      this.showUserFeedback('🔌 Extension reconnecting...', 'info');
+      
+      // Start aggressive reconnection with immediate first attempt
+      this.scheduleReconnection(100); // Start almost immediately
+    }
+  }
+
+  private async attemptReconnection(): Promise<void> {
+    if (this.isReconnecting) {
+      devLog('[TTS] Reconnection already in progress, skipping');
+      return;
+    }
+
+    this.isReconnecting = true;
+    this.reconnectionAttempts++;
+    
+    devLog(`[TTS] Reconnection attempt ${this.reconnectionAttempts}/${this.maxReconnectionAttempts}`);
+    
+    try {
+      // Clear any existing timeout
+      if (this.reconnectionTimeout) {
+        clearTimeout(this.reconnectionTimeout);
+        this.reconnectionTimeout = null;
+      }
+
+      // Try a simple ping to background with timeout
+      const pingPromise = chrome.runtime.sendMessage({ type: MessageType.PING });
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Ping timeout')), 3000)
+      );
+      
+      const response = await Promise.race([pingPromise, timeoutPromise]) as MessageResponse;
+      
+      if (response && response.pong) {
+        // Success! Extension is reconnected
+        this.isDisconnected = false;
+        this.isReconnecting = false;
+        this.reconnectionAttempts = 0;
+        
+        devLog('[TTS] Successfully reconnected to background');
+        this.showUserFeedback('✅ Extension reconnected', 'success');
+        
+        // Process any queued messages
+        await this.processQueuedMessages();
+        
+        // Restart health monitoring
+        this.startHealthMonitoring();
+        
+        // If background was reinitializing, verify health after a delay
+        if (!response.initialized) {
+          devLog('[TTS] Background still initializing, will verify health...');
+          setTimeout(() => {
+            this.verifyConnectionHealth();
+          }, 2000);
+        } else {
+          devLog('[TTS] Background ready and connection healthy');
+        }
+      } else {
+        throw new Error('Invalid ping response');
+      }
+    } catch (error) {
+      this.isReconnecting = false;
+      
+      if (this.reconnectionAttempts >= this.maxReconnectionAttempts) {
+        devLog('[TTS] Max reconnection attempts reached, giving up');
+        this.showUserFeedback('❌ Extension connection failed - please reload page', 'error');
+        return;
+      }
+      
+      // Calculate exponential backoff delay (100ms, 200ms, 400ms, 800ms, max 5s)
+      const baseDelay = 100;
+      const exponentialDelay = Math.min(baseDelay * Math.pow(2, this.reconnectionAttempts - 1), 5000);
+      
+      devLog(`[TTS] Reconnection failed (${error}), retrying in ${exponentialDelay}ms`);
+      
+      // Show progress feedback every few attempts
+      if (this.reconnectionAttempts % 3 === 0) {
+        this.showUserFeedback(`🔄 Reconnecting... (${this.reconnectionAttempts}/${this.maxReconnectionAttempts})`, 'info');
+      }
+      
+      this.scheduleReconnection(exponentialDelay);
+    }
+  }
+
+  private scheduleReconnection(delay: number): void {
+    if (this.reconnectionTimeout) {
+      clearTimeout(this.reconnectionTimeout);
+    }
+    
+    this.reconnectionTimeout = setTimeout(() => {
+      this.attemptReconnection();
+    }, delay);
+  }
+
+  private shouldQueueMessage(message: Message): boolean {
+    // Only queue important messages that should be retried
+    const importantTypes = [
+      MessageType.START_SPEECH,
+      MessageType.PAUSE_SPEECH,
+      MessageType.RESUME_SPEECH,
+      MessageType.STOP_SPEECH,
+      MessageType.CHANGE_SPEED,
+      MessageType.SELECTION_CHANGED
+    ];
+    return importantTypes.includes(message.type);
+  }
+
+  private async processQueuedMessages(): Promise<void> {
+    if (this.messageQueue.length === 0) return;
+    
+    devLog(`[TTS] Processing ${this.messageQueue.length} queued messages`);
+    const messagesToProcess = [...this.messageQueue];
+    this.messageQueue = []; // Clear queue
+    
+    for (const message of messagesToProcess) {
+      try {
+        await this.safeMessageToBackground(message, false); // Don't queue again
+        devLog('[TTS] Successfully processed queued message:', message.type);
+      } catch (error) {
+        devLog('[TTS] Failed to process queued message:', message.type, error);
+      }
+    }
+  }
+
+  private startHealthMonitoring(): void {
+    // Stop any existing monitoring
+    this.stopHealthMonitoring();
+    
+    // Ping background every 30 seconds to ensure connection is alive
+    this.healthCheckInterval = setInterval(async () => {
+      if (!this.isDisconnected) {
+        try {
+          const response = await chrome.runtime.sendMessage({ type: MessageType.PING });
+          if (!response || !response.pong) {
+            devLog('[TTS] Health check failed - no response');
+            this.markAsDisconnected();
+          }
+        } catch (error) {
+          devLog('[TTS] Health check failed:', error);
+          this.markAsDisconnected();
+        }
+      }
+    }, 30000); // Check every 30 seconds
+  }
+
+  private stopHealthMonitoring(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
+    
+    if (this.reconnectionTimeout) {
+      clearTimeout(this.reconnectionTimeout);
+      this.reconnectionTimeout = null;
+    }
+  }
+
+  private async verifyConnectionHealth() {
+    try {
+      // Test connection by trying to get extension state
+      const response = await this.safeMessageToBackground({
+        type: MessageType.GET_STATE
+      });
+      
+      if (response && response.success) {
+        devLog('[TTS] Connection health verified');
+        this.showUserFeedback('🔌 Extension fully ready', 'success');
+      } else {
+        throw new Error('Health check failed');
+      }
+    } catch (error) {
+      devLog('[TTS] Connection health check failed:', error);
+      // Don't mark as disconnected again, just retry verification
+      setTimeout(() => {
+        this.verifyConnectionHealth();
+      }, 3000);
+    }
+  }
+
+  private safeMessageToBackground(message: Message, queueOnFailure: boolean = true): Promise<MessageResponse> {
+    // Safe wrapper for chrome.runtime.sendMessage that handles context invalidation
+    if (this.isDisconnected) {
+      if (queueOnFailure && this.shouldQueueMessage(message)) {
+        devLog('[TTS] Queuing message for retry after reconnection:', message.type);
+        this.messageQueue.push(message);
+      } else {
+        devLog('[TTS] Skipping message to background - extension disconnected');
+      }
+      return Promise.resolve({ success: false, error: 'Extension disconnected' });
+    }
+
+    return chrome.runtime.sendMessage(message).catch((error) => {
+      const isContextError = error.message.includes('Extension context invalidated') || 
+                            error.message.includes('Receiving end does not exist') ||
+                            error.message.includes('Could not establish connection');
+      
+      if (isContextError) {
+        // Queue important messages before marking as disconnected
+        if (queueOnFailure && this.shouldQueueMessage(message)) {
+          devLog('[TTS] Queuing failed message for retry:', message.type);
+          this.messageQueue.push(message);
+        }
+        
+        this.markAsDisconnected();
+        devLog('[TTS] Silently handling context invalidation error');
+        return { success: false, error: 'Extension context invalidated' };
+      }
+      devLog('[TTS] Non-context error in safeMessageToBackground:', error);
+      return { success: false, error: error.message };
+    });
   }
 
   private async handleStartSpeech(data: Record<string, unknown>): Promise<void> {
     try {
       const text = data.text as string;
       const voice = data.voice as Record<string, unknown> | undefined;
+      const rate = data.rate as number | undefined;
       
       if (!text || typeof text !== 'string') {
         throw new Error('No text provided for speech synthesis');
@@ -632,12 +929,12 @@ class TextSelectionHandler {
       } else {
         // No voice provided, get the currently selected voice from background
         try {
-          const voiceResponse = await chrome.runtime.sendMessage({
+          const voiceResponse = await this.safeMessageToBackground({
             type: MessageType.GET_VOICE_DATA
           });
           
           if (voiceResponse && voiceResponse.success && voiceResponse.data && voiceResponse.data.selectedVoice) {
-            const selectedVoice = voiceResponse.data.selectedVoice;
+            const selectedVoice = voiceResponse.data.selectedVoice as { name: string; lang: string; };
             const voiceSet = this._speechSynthesizer.setVoice(selectedVoice);
             devLog('[TTS] Applied selected voice from background:', selectedVoice.name, 'Success:', voiceSet);
           } else {
@@ -646,6 +943,12 @@ class TextSelectionHandler {
         } catch (error) {
           devLog('[TTS] Error getting selected voice from background:', error);
         }
+      }
+      
+      // Set rate if provided
+      if (rate && typeof rate === 'number') {
+        this._speechSynthesizer.setRate(rate);
+        devLog('[TTS] Applied rate:', rate);
       }
 
       await this._speechSynthesizer.speak(text);
@@ -707,7 +1010,7 @@ class TextSelectionHandler {
   private async stopTTS(): Promise<void> {
     try {
       // Send stop command to background script
-      await chrome.runtime.sendMessage({
+      await this.safeMessageToBackground({
         type: MessageType.STOP_TTS,
         payload: {
           source: 'keyboard',
@@ -965,12 +1268,37 @@ class TextSelectionHandler {
 class ContentScriptController {
   private highlightedElements: HTMLElement[] = [];
   private textSelectionHandler: TextSelectionHandler;
+  private isDisconnected: boolean = false;
+  private reconnectionAttempts: number = 0;
+  private maxReconnectionAttempts: number = 15; // Fewer attempts than TextSelectionHandler
+  private reconnectionTimeout: NodeJS.Timeout | null = null;
+  private isReconnecting: boolean = false;
 
   constructor() {
     this.textSelectionHandler = new TextSelectionHandler();
     // Set the reference so TextSelectionHandler can call ContentScriptController methods
     this.textSelectionHandler.setContentController(this);
     this.initialize();
+    
+    // Add cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+      this.cleanup();
+    });
+  }
+
+  private cleanup(): void {
+    // Clean up timeouts and intervals
+    if (this.reconnectionTimeout) {
+      clearTimeout(this.reconnectionTimeout);
+      this.reconnectionTimeout = null;
+    }
+    
+    // Clean up text selection handler
+    if (this.textSelectionHandler) {
+      this.textSelectionHandler.cleanup();
+    }
+    
+    devLog('[TTS] ContentScriptController cleanup completed');
   }
 
   private async initialize() {
@@ -981,7 +1309,7 @@ class ContentScriptController {
     this.injectStyles();
 
     // Notify background that content script is ready (immediately functional)
-    chrome.runtime.sendMessage({
+    this.safeMessageToBackground({
       type: MessageType.CONTENT_READY,
       payload: { url: window.location.href },
     });
@@ -1036,7 +1364,7 @@ class ContentScriptController {
               
               devLog('Formatted voice data:', voiceInfos.length, 'voices');
               
-              const response = await chrome.runtime.sendMessage({
+              const response = await this.safeMessageToBackground({
                 type: MessageType.UPDATE_VOICE_DATA,
                 payload: { voices: voiceInfos }
               });
@@ -1241,11 +1569,11 @@ class ContentScriptController {
 
     try {
       // Get the currently selected voice from background script
-      const voiceResponse = await chrome.runtime.sendMessage({
+      const voiceResponse = await this.safeMessageToBackground({
         type: MessageType.GET_VOICE_DATA
       });
       
-      const selectedVoice = voiceResponse?.selectedVoice || null;
+      const selectedVoice = (voiceResponse?.data as Record<string, unknown>)?.selectedVoice || null;
 
       // Use the unified Web Speech API flow through TextSelectionHandler
       // This ensures proper state tracking and stop functionality
@@ -1329,6 +1657,107 @@ class ContentScriptController {
     if (settings.theme && typeof settings.theme === 'string') {
       document.documentElement.setAttribute('data-tts-theme', settings.theme);
     }
+  }
+
+  private markAsDisconnected() {
+    // Mark extension as disconnected to prevent further communication attempts
+    if (!this.isDisconnected) {
+      this.isDisconnected = true;
+      this.reconnectionAttempts = 0;
+      devLog('[TTS] ContentScriptController marked as disconnected due to context invalidation');
+      
+      // Clear any pending reconnection attempts
+      if (this.reconnectionTimeout) {
+        clearTimeout(this.reconnectionTimeout);
+      }
+      
+      // Try to reconnect with minimal delay
+      this.scheduleReconnection(500);
+    }
+  }
+
+  private async attemptReconnection(): Promise<void> {
+    if (this.isReconnecting) {
+      devLog('[TTS] ContentScriptController reconnection already in progress');
+      return;
+    }
+
+    this.isReconnecting = true;
+    this.reconnectionAttempts++;
+    
+    devLog(`[TTS] ContentScriptController reconnection attempt ${this.reconnectionAttempts}/${this.maxReconnectionAttempts}`);
+    
+    try {
+      // Clear any existing timeout
+      if (this.reconnectionTimeout) {
+        clearTimeout(this.reconnectionTimeout);
+        this.reconnectionTimeout = null;
+      }
+
+      // Try a simple ping to background with timeout
+      const pingPromise = chrome.runtime.sendMessage({ type: MessageType.PING });
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Ping timeout')), 2000)
+      );
+      
+      const response = await Promise.race([pingPromise, timeoutPromise]) as MessageResponse;
+      
+      if (response && response.pong) {
+        // Success! Extension is reconnected
+        this.isDisconnected = false;
+        this.isReconnecting = false;
+        this.reconnectionAttempts = 0;
+        devLog('[TTS] ContentScriptController successfully reconnected to background');
+      } else {
+        throw new Error('Invalid ping response');
+      }
+    } catch (error) {
+      this.isReconnecting = false;
+      
+      if (this.reconnectionAttempts >= this.maxReconnectionAttempts) {
+        devLog('[TTS] ContentScriptController max reconnection attempts reached');
+        return;
+      }
+      
+      // Calculate exponential backoff delay
+      const baseDelay = 500;
+      const exponentialDelay = Math.min(baseDelay * Math.pow(2, this.reconnectionAttempts - 1), 10000);
+      
+      devLog(`[TTS] ContentScriptController reconnection failed, retrying in ${exponentialDelay}ms`);
+      this.scheduleReconnection(exponentialDelay);
+    }
+  }
+
+  private scheduleReconnection(delay: number): void {
+    if (this.reconnectionTimeout) {
+      clearTimeout(this.reconnectionTimeout);
+    }
+    
+    this.reconnectionTimeout = setTimeout(() => {
+      this.attemptReconnection();
+    }, delay);
+  }
+
+  private safeMessageToBackground(message: Message): Promise<MessageResponse> {
+    // Safe wrapper for chrome.runtime.sendMessage that handles context invalidation
+    if (this.isDisconnected) {
+      devLog('[TTS] ContentScriptController skipping message - extension disconnected:', message.type);
+      return Promise.resolve({ success: false, error: 'Extension disconnected' });
+    }
+
+    return chrome.runtime.sendMessage(message).catch((error) => {
+      const isContextError = error.message.includes('Extension context invalidated') || 
+                            error.message.includes('Receiving end does not exist') ||
+                            error.message.includes('Could not establish connection');
+      
+      if (isContextError) {
+        this.markAsDisconnected();
+        devLog('[TTS] ContentScriptController handling context invalidation error for:', message.type);
+        return { success: false, error: 'Extension context invalidated' };
+      }
+      devLog('[TTS] ContentScriptController non-context error:', error);
+      return { success: false, error: error.message };
+    });
   }
 }
 

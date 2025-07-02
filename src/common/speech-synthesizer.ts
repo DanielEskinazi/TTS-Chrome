@@ -51,6 +51,12 @@ export class SpeechSynthesizer {
   private pausedText: string | null = null;
   private currentChunkIndex = 0;
   private lastToggleTime = 0; // For debouncing pause/resume operations
+  private utteranceStartTime = 0; // Track when current utterance started
+  private isChangingRate = false; // Flag to track rate change operations
+  private rateChangeTimeout: NodeJS.Timeout | null = null; // Track pending rate change
+  private cleanupTimeout: NodeJS.Timeout | null = null; // Track cleanup operations
+  private lastStopTime = 0; // Track when stop was last called for debouncing
+  private readonly START_DEBOUNCE_DELAY = 200; // Minimum ms between stop and start
   private settings: SpeechSettings = {
     rate: 1.0,
     pitch: 1.0,
@@ -199,11 +205,16 @@ export class SpeechSynthesizer {
     };
 
     this.onEnd = () => {
-      this.isPlaying = false;
-      this.isPaused = false;
-      this.currentUtterance = null;
-      this.processQueue();
-      this.notifyPlaybackState('ended');
+      // Don't change playing state if we're changing rate
+      if (!this.isChangingRate) {
+        this.isPlaying = false;
+        this.isPaused = false;
+        this.currentUtterance = null;
+        this.processQueue();
+        this.notifyPlaybackState('ended');
+      } else {
+        console.log('[SpeechSynthesizer] onEnd called during rate change - preserving state');
+      }
     };
 
     this.onError = (event: SpeechSynthesisErrorEvent) => {
@@ -237,10 +248,8 @@ export class SpeechSynthesizer {
       throw new Error('Invalid text for speech synthesis');
     }
 
-    // Stop current speech if playing
-    if (this.isPlaying) {
-      this.stop();
-    }
+    // Progressive preparation with multiple fallback strategies
+    await this.prepareForSpeech();
 
     // Preprocess text
     const processedText = this.preprocessText(text);
@@ -254,6 +263,94 @@ export class SpeechSynthesizer {
     } else {
       // Multiple chunks - queue them
       return this.speakChunks(chunks, options);
+    }
+  }
+
+  private async prepareForSpeech(): Promise<void> {
+    console.log('[TTS-Debug] Preparing for speech...');
+    console.log('[TTS-Debug] Current API state:', {
+      speaking: speechSynthesis.speaking,
+      paused: speechSynthesis.paused,
+      pending: speechSynthesis.pending
+    });
+    console.log('[TTS-Debug] Current internal state:', {
+      isPlaying: this.isPlaying,
+      isPaused: this.isPaused,
+      hasUtterance: !!this.currentUtterance
+    });
+
+    // Strategy 1: Stop current speech if playing
+    if (this.isPlaying) {
+      console.log('[TTS-Debug] Stopping current speech');
+      this.stop();
+    }
+
+    // Strategy 2: Debouncing - ensure enough time has passed since last stop
+    if (!this.canStart()) {
+      const waitTime = this.START_DEBOUNCE_DELAY - (Date.now() - this.lastStopTime);
+      console.log(`[TTS-Debug] Debouncing: waiting ${waitTime}ms`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+
+    // Strategy 3: Progressive API state resolution
+    let attempt = 1;
+    const maxAttempts = 3;
+
+    while (attempt <= maxAttempts) {
+      console.log(`[TTS-Debug] API validation attempt ${attempt}/${maxAttempts}`);
+      
+      if (this.validateAPIState()) {
+        console.log('[TTS-Debug] API state validated successfully');
+        return;
+      }
+
+      console.log(`[TTS-Debug] API state validation failed, attempt ${attempt}`);
+      
+      // Progressive recovery strategies
+      if (attempt === 1) {
+        // First attempt: Gentle reset
+        console.log('[TTS-Debug] Attempting gentle reset');
+        this.reconcileState();
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } else if (attempt === 2) {
+        // Second attempt: Force reset
+        console.log('[TTS-Debug] Attempting force reset');
+        this.forceReset();
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } else {
+        // Final attempt: Aggressive recovery
+        console.log('[TTS-Debug] Attempting aggressive recovery');
+        speechSynthesis.cancel();
+        this.isPlaying = false;
+        this.isPaused = false;
+        this.currentUtterance = null;
+        this.speechQueue = [];
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+
+      attempt++;
+    }
+
+    // Final fallback: Proceed with warning if API still not perfect
+    const finalState = {
+      speaking: speechSynthesis.speaking,
+      paused: speechSynthesis.paused,
+      pending: speechSynthesis.pending
+    };
+
+    console.warn('[TTS-Debug] API state not perfect after all attempts, proceeding anyway');
+    console.warn('[TTS-Debug] Final API state:', finalState);
+
+    // Set up for graceful degradation
+    this.isPlaying = false;
+    this.isPaused = false;
+    this.currentUtterance = null;
+    this.speechQueue = [];
+
+    // Only throw error for truly impossible states
+    if (speechSynthesis.pending) {
+      console.error('[TTS-Debug] API has pending operations - this may cause issues');
+      // Don't throw - just log warning and continue
     }
   }
 
@@ -348,6 +445,7 @@ export class SpeechSynthesizer {
       // Set up event handlers
       utterance.onstart = () => {
         this.currentUtterance = utterance;
+        this.utteranceStartTime = Date.now();
         this.onStart();
       };
       
@@ -427,62 +525,100 @@ export class SpeechSynthesizer {
       'speechSynthesis.pending': speechSynthesis.pending
     });
     
-    // Check if speech synthesis is actually speaking
+    // More flexible pause conditions
+    if (!this.isPlaying || this.isPaused) {
+      // eslint-disable-next-line no-console
+      console.log('[TTS-Debug] Not in playing state, cannot pause');
+      return false;
+    }
+
+    // Check if API is in a pauseable state
     if (!speechSynthesis.speaking) {
       // eslint-disable-next-line no-console
-      console.log('[TTS-Debug] speechSynthesis is not speaking, cannot pause');
+      console.log('[TTS-Debug] API not speaking, aligning internal state');
+      this.isPlaying = false;
+      this.isPaused = false;
+      this.notifyPlaybackState('stopped');
       return false;
     }
     
-    if (this.isPlaying && !this.isPaused) {
-      try {
-        // Store current position for resume
-        this.storePausePosition();
-        
-        // Pause speech synthesis
-        speechSynthesis.pause();
-        
-        // Add small delay and validate pause worked
-        setTimeout(() => {
-          // eslint-disable-next-line no-console
-          console.log('[TTS-Debug] Post-pause API state:', {
-            'speechSynthesis.speaking': speechSynthesis.speaking,
-            'speechSynthesis.paused': speechSynthesis.paused,
-            'speechSynthesis.pending': speechSynthesis.pending
-          });
-          
-          // Check if pause actually worked
-          if (!speechSynthesis.paused && speechSynthesis.speaking) {
-            // eslint-disable-next-line no-console
-            console.warn('[TTS-Debug] WARNING: Pause may have failed - speechSynthesis.paused is still false');
-            // Try pause again
-            speechSynthesis.pause();
-            setTimeout(() => {
-              // eslint-disable-next-line no-console
-              console.log('[TTS-Debug] Retry pause result - speechSynthesis.paused:', speechSynthesis.paused);
-            }, 50);
-          }
-        }, 50);
-        
-        this.isPaused = true;
-        this.notifyPlaybackState('paused');
+    try {
+      // Store current position for resume
+      this.storePausePosition();
+      
+      // Update internal state immediately for responsiveness
+      this.isPaused = true;
+      this.notifyPlaybackState('paused');
+      
+      // Attempt to pause API
+      speechSynthesis.pause();
+      
+      // Graceful pause verification with progressive fallbacks
+      this.verifyPauseState();
+      
+      // eslint-disable-next-line no-console
+      console.log('[TTS-Debug] Pause initiated, state updated');
+      return true;
+      
+    } catch (error) {
+      console.error('Error pausing speech:', error);
+      // Restore state on error
+      this.isPaused = false;
+      this.notifyPlaybackState('started');
+      return false;
+    }
+  }
+
+  private verifyPauseState(): void {
+    // Progressive verification with multiple fallback strategies
+    const checkPause = (attempt: number = 1) => {
+      setTimeout(() => {
+        const apiPaused = speechSynthesis.paused;
+        const apiSpeaking = speechSynthesis.speaking;
         
         // eslint-disable-next-line no-console
-        console.log('[TTS-Debug] Speech paused successfully, speechSynthesis.paused:', speechSynthesis.paused);
+        console.log(`[TTS-Debug] Pause verification attempt ${attempt}:`, {
+          'speechSynthesis.speaking': apiSpeaking,
+          'speechSynthesis.paused': apiPaused,
+          'speechSynthesis.pending': speechSynthesis.pending
+        });
         
-        if (process.env.NODE_ENV === 'development') {
+        // Success case: API is paused
+        if (apiPaused && apiSpeaking) {
           // eslint-disable-next-line no-console
-          console.log('Speech paused at position:', this.pausePosition);
+          console.log('[TTS-Debug] Pause verified successfully');
+          return;
         }
-        return true;
-      } catch (error) {
-        console.error('Error pausing speech:', error);
-        return false;
-      }
-    }
-    // eslint-disable-next-line no-console
-    console.log('[TTS-Debug] Pause conditions not met - returning false');
-    return false;
+        
+        // Problem case: Still playing despite pause attempt
+        if (apiSpeaking && !apiPaused && attempt < 3) {
+          // eslint-disable-next-line no-console
+          console.warn(`[TTS-Debug] Pause attempt ${attempt} failed, retrying...`);
+          speechSynthesis.pause();
+          checkPause(attempt + 1);
+          return;
+        }
+        
+        // API stopped completely (might be end of utterance)
+        if (!apiSpeaking && !apiPaused) {
+          // eslint-disable-next-line no-console
+          console.log('[TTS-Debug] Speech ended during pause attempt');
+          this.isPaused = false;
+          this.isPlaying = false;
+          this.notifyPlaybackState('ended');
+          return;
+        }
+        
+        // Final fallback: Accept current state but log warning
+        if (attempt >= 3) {
+          // eslint-disable-next-line no-console
+          console.warn('[TTS-Debug] Pause verification failed after 3 attempts, proceeding anyway');
+          // Keep our internal pause state even if API disagrees
+        }
+      }, attempt * 50); // Progressive delay: 50ms, 100ms, 150ms
+    };
+    
+    checkPause();
   }
 
   resume(): boolean {
@@ -495,62 +631,132 @@ export class SpeechSynthesizer {
       'speechSynthesis.pending': speechSynthesis.pending
     });
     
-    // Check for API state mismatch
-    if (this.isPaused && !speechSynthesis.paused) {
+    // More flexible resume conditions
+    if (!this.isPaused) {
       // eslint-disable-next-line no-console
-      console.warn('[TTS-Debug] WARNING: State mismatch - extension thinks paused but speechSynthesis.paused is false');
-      // Try to recover by assuming speech is actually playing
-      this.isPaused = false;
-      this.notifyPlaybackState('resumed');
-      return true;
+      console.log('[TTS-Debug] Not in paused state, cannot resume');
+      return false;
     }
     
-    if (this.isPaused && speechSynthesis.paused) {
-      try {
-        // Resume speech synthesis
-        speechSynthesis.resume();
-        
-        // Add small delay and validate resume worked
-        setTimeout(() => {
-          // eslint-disable-next-line no-console
-          console.log('[TTS-Debug] Post-resume API state:', {
-            'speechSynthesis.speaking': speechSynthesis.speaking,
-            'speechSynthesis.paused': speechSynthesis.paused,
-            'speechSynthesis.pending': speechSynthesis.pending
-          });
-          
-          // Check if resume actually worked
-          if (speechSynthesis.paused) {
-            // eslint-disable-next-line no-console
-            console.warn('[TTS-Debug] WARNING: Resume may have failed - speechSynthesis.paused is still true');
-            // Try resume again
-            speechSynthesis.resume();
-            setTimeout(() => {
-              // eslint-disable-next-line no-console
-              console.log('[TTS-Debug] Retry resume result - speechSynthesis.paused:', speechSynthesis.paused);
-            }, 50);
-          }
-        }, 50);
-        
+    // Handle state mismatches gracefully
+    if (this.isPaused && !speechSynthesis.paused) {
+      // eslint-disable-next-line no-console
+      console.warn('[TTS-Debug] State mismatch: internally paused but API not paused');
+      
+      // Check if speech is actually playing
+      if (speechSynthesis.speaking) {
+        // eslint-disable-next-line no-console
+        console.log('[TTS-Debug] API is actually playing, aligning state');
         this.isPaused = false;
         this.notifyPlaybackState('resumed');
-        
-        // eslint-disable-next-line no-console
-        console.log('[TTS-Debug] Speech resumed successfully');
-        
-        if (process.env.NODE_ENV === 'development') {
-          // eslint-disable-next-line no-console
-          console.log('Speech resumed');
-        }
         return true;
-      } catch (error) {
-        console.error('Error resuming speech:', error);
+      } else {
+        // Speech ended while we thought it was paused
+        // eslint-disable-next-line no-console
+        console.log('[TTS-Debug] Speech ended while paused, resetting state');
+        this.isPlaying = false;
+        this.isPaused = false;
+        this.notifyPlaybackState('ended');
         return false;
       }
     }
-    // eslint-disable-next-line no-console
-    console.log('[TTS-Debug] Resume conditions not met - returning false');
-    return false;
+    
+    // Handle the case where API is paused but not speaking (stuck state)
+    if (speechSynthesis.paused && !speechSynthesis.speaking) {
+      // eslint-disable-next-line no-console
+      console.warn('[TTS-Debug] API stuck: paused but not speaking, attempting recovery');
+      speechSynthesis.cancel();
+      this.isPlaying = false;
+      this.isPaused = false;
+      this.notifyPlaybackState('stopped');
+      return false;
+    }
+    
+    try {
+      // Update internal state immediately for responsiveness
+      this.isPaused = false;
+      this.notifyPlaybackState('resumed');
+      
+      // Attempt to resume API
+      speechSynthesis.resume();
+      
+      // Graceful resume verification with progressive fallbacks
+      this.verifyResumeState();
+      
+      // eslint-disable-next-line no-console
+      console.log('[TTS-Debug] Resume initiated, state updated');
+      return true;
+      
+    } catch (error) {
+      console.error('Error resuming speech:', error);
+      // Restore pause state on error
+      this.isPaused = true;
+      this.notifyPlaybackState('paused');
+      return false;
+    }
+  }
+
+  private verifyResumeState(): void {
+    // Progressive verification with multiple fallback strategies
+    const checkResume = (attempt: number = 1) => {
+      setTimeout(() => {
+        const apiPaused = speechSynthesis.paused;
+        const apiSpeaking = speechSynthesis.speaking;
+        
+        // eslint-disable-next-line no-console
+        console.log(`[TTS-Debug] Resume verification attempt ${attempt}:`, {
+          'speechSynthesis.speaking': apiSpeaking,
+          'speechSynthesis.paused': apiPaused,
+          'speechSynthesis.pending': speechSynthesis.pending
+        });
+        
+        // Success case: API is playing (speaking and not paused)
+        if (apiSpeaking && !apiPaused) {
+          // eslint-disable-next-line no-console
+          console.log('[TTS-Debug] Resume verified successfully');
+          return;
+        }
+        
+        // Problem case: Still paused despite resume attempt
+        if (apiSpeaking && apiPaused && attempt < 3) {
+          // eslint-disable-next-line no-console
+          console.warn(`[TTS-Debug] Resume attempt ${attempt} failed, retrying...`);
+          speechSynthesis.resume();
+          checkResume(attempt + 1);
+          return;
+        }
+        
+        // API stopped completely during resume
+        if (!apiSpeaking && !apiPaused) {
+          // eslint-disable-next-line no-console
+          console.log('[TTS-Debug] Speech ended during resume attempt');
+          this.isPaused = false;
+          this.isPlaying = false;
+          this.notifyPlaybackState('ended');
+          return;
+        }
+        
+        // Stuck in paused state - force recovery
+        if (!apiSpeaking && apiPaused && attempt >= 2) {
+          // eslint-disable-next-line no-console
+          console.warn('[TTS-Debug] API stuck in paused state, forcing recovery');
+          speechSynthesis.cancel();
+          this.isPlaying = false;
+          this.isPaused = false;
+          this.notifyPlaybackState('stopped');
+          return;
+        }
+        
+        // Final fallback: Accept current state but log warning
+        if (attempt >= 3) {
+          // eslint-disable-next-line no-console
+          console.warn('[TTS-Debug] Resume verification failed after 3 attempts, proceeding anyway');
+          // Keep our internal resume state even if API disagrees
+        }
+      }, attempt * 50); // Progressive delay: 50ms, 100ms, 150ms
+    };
+    
+    checkResume();
   }
 
   private storePausePosition(): void {
@@ -569,8 +775,8 @@ export class SpeechSynthesizer {
     const now = Date.now();
     const timeSinceLastToggle = now - this.lastToggleTime;
     
-    // Debounce: prevent rapid successive calls (minimum 100ms between operations)
-    if (timeSinceLastToggle < 100) {
+    // Debounce: prevent rapid successive calls (minimum 300ms between operations)
+    if (timeSinceLastToggle < 300) {
       // eslint-disable-next-line no-console
       console.log('[TTS-Debug] TogglePause debounced - too soon since last toggle:', timeSinceLastToggle + 'ms');
       return false;
@@ -589,6 +795,23 @@ export class SpeechSynthesizer {
       timeSinceLastToggle: timeSinceLastToggle + 'ms'
     });
     
+    // Check for inconsistent state and try to recover
+    if (!speechSynthesis.speaking && (this.isPlaying || this.isPaused)) {
+      console.warn('[TTS-Debug] State inconsistency detected - resetting state');
+      console.warn('[TTS-Debug] Internal state:', { isPlaying: this.isPlaying, isPaused: this.isPaused });
+      console.warn('[TTS-Debug] API state:', { speaking: speechSynthesis.speaking, paused: speechSynthesis.paused });
+      
+      // Reset to consistent state
+      this.isPlaying = false;
+      this.isPaused = false;
+      this.notifyPlaybackState('stopped');
+      
+      // Try to clean up any stuck state
+      speechSynthesis.cancel();
+      
+      return false;
+    }
+    
     if (this.isPaused) {
       return this.resume();
     } else if (this.isPlaying) {
@@ -601,7 +824,27 @@ export class SpeechSynthesizer {
   }
 
   stop(): void {
+    // Clear any pending timeouts to prevent interference
+    if (this.rateChangeTimeout) {
+      clearTimeout(this.rateChangeTimeout);
+      this.rateChangeTimeout = null;
+    }
+    
+    if (this.cleanupTimeout) {
+      clearTimeout(this.cleanupTimeout);
+      this.cleanupTimeout = null;
+    }
+    
+    // Reset rate change flag
+    this.isChangingRate = false;
+    
+    // Track stop time for debouncing
+    this.lastStopTime = Date.now();
+    
+    // Single clean cancel - no delayed cleanup that can interfere with new speech
     speechSynthesis.cancel();
+    
+    // Reset all state immediately
     this.speechQueue = [];
     this.currentUtterance = null;
     this.isPlaying = false;
@@ -610,6 +853,134 @@ export class SpeechSynthesizer {
     this.pausedText = null;
     this.currentChunkIndex = 0;
     this.notifyPlaybackState('stopped');
+  }
+
+  // Validate that Web Speech API is in a workable state (more flexible than before)
+  private validateAPIState(): boolean {
+    // Accept these valid states:
+    // 1. Complete idle: not speaking, not paused, not pending
+    // 2. Currently paused: speaking and paused (valid pause state)
+    // 3. Clean speaking: speaking but not paused (active speech)
+    
+    const isSpeaking = speechSynthesis.speaking;
+    const isPaused = speechSynthesis.paused;
+    const isPending = speechSynthesis.pending;
+    
+    // Completely idle - perfect for new speech
+    if (!isSpeaking && !isPaused && !isPending) {
+      return true;
+    }
+    
+    // Currently paused - can resume or restart
+    if (isSpeaking && isPaused && !isPending) {
+      return true;
+    }
+    
+    // Currently speaking - can interrupt for new speech
+    if (isSpeaking && !isPaused && !isPending) {
+      return true;
+    }
+    
+    // Only reject truly problematic states
+    // Problem: paused but not speaking (stuck state)
+    if (!isSpeaking && isPaused) {
+      console.warn('[TTS-Debug] API stuck: paused but not speaking');
+      return false;
+    }
+    
+    // Problem: pending operations that might block
+    if (isPending) {
+      console.warn('[TTS-Debug] API has pending operations');
+      return false;
+    }
+    
+    // Default to allowing other states
+    return true;
+  }
+
+  // Enhanced force reset with multiple strategies
+  private forceReset(): void {
+    console.log('[TTS-Debug] Force reset initiated');
+    
+    // Strategy 1: Standard cancel
+    speechSynthesis.cancel();
+    
+    // Strategy 2: Reset our internal state regardless of API
+    this.isPlaying = false;
+    this.isPaused = false;
+    this.currentUtterance = null;
+    this.speechQueue = [];
+    
+    // Strategy 3: Progressive recovery with multiple attempts
+    setTimeout(() => {
+      if (!this.validateAPIState()) {
+        console.log('[TTS-Debug] First reset failed, trying secondary reset');
+        speechSynthesis.cancel();
+        
+        // Strategy 4: Aggressive reset after more time
+        setTimeout(() => {
+          if (!this.validateAPIState()) {
+            console.log('[TTS-Debug] Secondary reset failed, forcing state reconciliation');
+            this.reconcileState();
+          }
+        }, 200);
+      }
+    }, 100);
+  }
+
+  // Reconcile mismatched states between API and internal tracking
+  private reconcileState(): void {
+    console.log('[TTS-Debug] Reconciling state mismatch');
+    console.log('[TTS-Debug] API state:', {
+      speaking: speechSynthesis.speaking,
+      paused: speechSynthesis.paused,
+      pending: speechSynthesis.pending
+    });
+    console.log('[TTS-Debug] Internal state:', {
+      isPlaying: this.isPlaying,
+      isPaused: this.isPaused,
+      hasUtterance: !!this.currentUtterance
+    });
+    
+    // If API says nothing is happening, align our state
+    if (!speechSynthesis.speaking && !speechSynthesis.paused) {
+      this.isPlaying = false;
+      this.isPaused = false;
+      this.currentUtterance = null;
+      this.speechQueue = [];
+      console.log('[TTS-Debug] Aligned to idle state');
+      return;
+    }
+    
+    // If API is paused, align our pause state
+    if (speechSynthesis.speaking && speechSynthesis.paused) {
+      this.isPlaying = true;
+      this.isPaused = true;
+      console.log('[TTS-Debug] Aligned to paused state');
+      return;
+    }
+    
+    // If API is speaking, align our playing state
+    if (speechSynthesis.speaking && !speechSynthesis.paused) {
+      this.isPlaying = true;
+      this.isPaused = false;
+      console.log('[TTS-Debug] Aligned to playing state');
+      return;
+    }
+    
+    // For stuck states, force everything to stop
+    console.log('[TTS-Debug] Forcing everything to stop due to irreconcilable state');
+    speechSynthesis.cancel();
+    this.isPlaying = false;
+    this.isPaused = false;
+    this.currentUtterance = null;
+    this.speechQueue = [];
+  }
+
+  // Check if enough time has passed since last stop (more flexible)
+  private canStart(): boolean {
+    const timeSinceStop = Date.now() - this.lastStopTime;
+    return timeSinceStop >= this.START_DEBOUNCE_DELAY;
   }
 
   // State management
@@ -626,20 +997,25 @@ export class SpeechSynthesizer {
 
   private notifyPlaybackState(state: PlaybackStateType): void {
     // Send message to background script
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      const message = chrome.runtime.sendMessage({
         type: MessageType.TTS_STATE_CHANGED,
         payload: {
           state: state,
           playbackState: this.getPlaybackState(),
           timestamp: Date.now()
         }
-      }).catch(error => {
-        if (process.env.NODE_ENV === 'development') {
-          // eslint-disable-next-line no-console
-          console.log('Could not notify playback state:', error);
-        }
       });
+      
+      // Only call .catch() if sendMessage returns a Promise
+      if (message && typeof message.catch === 'function') {
+        message.catch(error => {
+          if (process.env.NODE_ENV === 'development') {
+            // eslint-disable-next-line no-console
+            console.log('Could not notify playback state:', error);
+          }
+        });
+      }
     }
   }
 
@@ -683,20 +1059,25 @@ export class SpeechSynthesizer {
   }
 
   private notifyError(errorType: ErrorType, originalError: Error | SpeechSynthesisErrorEvent): void {
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      const message = chrome.runtime.sendMessage({
         type: MessageType.TTS_ERROR,
         payload: {
           errorType: errorType,
           error: 'message' in originalError ? originalError.message : originalError.error || 'Unknown error',
           timestamp: Date.now()
         }
-      }).catch(error => {
-        if (process.env.NODE_ENV === 'development') {
-          // eslint-disable-next-line no-console
-          console.log('Could not notify error:', error);
-        }
       });
+      
+      // Only call .catch() if sendMessage returns a Promise
+      if (message && typeof message.catch === 'function') {
+        message.catch(error => {
+          if (process.env.NODE_ENV === 'development') {
+            // eslint-disable-next-line no-console
+            console.log('Could not notify error:', error);
+          }
+        });
+      }
     }
   }
 
@@ -733,12 +1114,86 @@ export class SpeechSynthesizer {
     return this.settings.voice;
   }
 
+  private lastRateChangeTime = 0;
+  private readonly RATE_CHANGE_COOLDOWN = 200; // Minimum ms between rate changes
+
   setRate(rate: number): boolean {
     if (rate >= 0.1 && rate <= 10) {
       this.settings.rate = rate;
+      
+      // Apply to current speech if playing - brief controlled restart
+      if (this.isPlaying && !this.isPaused) {
+        const now = Date.now();
+        const timeSinceLastChange = now - this.lastRateChangeTime;
+        
+        if (timeSinceLastChange < this.RATE_CHANGE_COOLDOWN) {
+          // Still update the setting but don't restart speech yet
+          return true;
+        }
+        
+        this.lastRateChangeTime = now;
+        this.applyRateChange(rate);
+      }
+      
       return true;
     }
     return false;
+  }
+
+  private applyRateChange(rate: number): void {
+    // Clear any pending timeouts to avoid conflicts with new rate change
+    if (this.rateChangeTimeout) {
+      clearTimeout(this.rateChangeTimeout);
+      this.rateChangeTimeout = null;
+    }
+    
+    if (this.cleanupTimeout) {
+      clearTimeout(this.cleanupTimeout);
+      this.cleanupTimeout = null;
+    }
+    
+    if (this.currentUtterance) {
+      // Save current state BEFORE cancel changes it
+      const wasPlaying = this.isPlaying && !this.isPaused;
+      const remainingQueue = [...this.speechQueue]; // Copy remaining items
+      const currentText = this.currentUtterance.text; // Save current utterance text
+      
+      // Mark that we're doing a rate change to handle in onEnd
+      this.isChangingRate = true;
+      
+      // Brief pause for rate change feedback
+      speechSynthesis.cancel();
+      
+      // If we were playing, continue with new rate
+      if (wasPlaying) {
+        // Use tracked timeout for speech restart
+        this.rateChangeTimeout = setTimeout(() => {
+          // Clear the timeout reference
+          this.rateChangeTimeout = null;
+          
+          // Reset playing state since cancel() will have cleared it
+          this.isPlaying = false;
+          this.isPaused = false;
+          
+          // Reset the flag
+          this.isChangingRate = false;
+          
+          // Create new queue with current text plus remaining
+          const allTexts = [currentText, ...remainingQueue.map(item => item.text)];
+          
+          // Resume playback with new rate
+          this.speak(allTexts.join(' '), { rate });
+        }, 200); // Slightly longer delay for better stability
+      } else {
+        // Use tracked timeout for state cleanup to prevent interference
+        this.cleanupTimeout = setTimeout(() => {
+          this.cleanupTimeout = null;
+          this.isChangingRate = false;
+          this.isPlaying = false;
+          this.isPaused = false;
+        }, 100);
+      }
+    }
   }
 
   setPitch(pitch: number): boolean {
