@@ -75,6 +75,27 @@
         </button>
       </section>
       
+      <section id="progressSection" class="progress-section" style="display: none;">
+        <div class="progress-container">
+          <div class="progress-time-display">
+            <span id="elapsedTime" class="time-elapsed">0:00</span>
+            <span id="remainingTime" class="time-remaining">-0:00</span>
+          </div>
+          <div class="progress-bar-wrapper">
+            <div id="progressBar" class="progress-bar">
+              <div id="progressFill" class="progress-fill"></div>
+            </div>
+            <div id="progressTooltip" class="progress-tooltip" style="display: none;">
+              <span id="tooltipTime">0:00</span>
+            </div>
+          </div>
+          <div class="progress-info">
+            <span id="progressPercent" class="progress-percent">0%</span>
+            <span id="progressSpeed" class="progress-speed">1.0x</span>
+          </div>
+        </div>
+      </section>
+      
       <div id="readingTime" class="reading-time" style="display: none;">
         Estimated time: <span id="timeEstimate">--</span>
       </div>

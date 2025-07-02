@@ -58,6 +58,11 @@ export enum MessageType {
   
   // Connection health
   PING = 'PING',
+  
+  // Progress tracking
+  PROGRESS_UPDATE = 'PROGRESS_UPDATE',
+  GET_PROGRESS_STATE = 'GET_PROGRESS_STATE',
+  SEEK_TO_POSITION = 'SEEK_TO_POSITION',
 }
 
 export interface Message {

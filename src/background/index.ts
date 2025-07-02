@@ -1,6 +1,7 @@
 import { MessageType, Message, MessageResponse } from '@common/types/messages';
 import { VoiceManager, VoiceInfo } from '@common/voice-manager';
 import { SpeedManager } from './speedManager';
+import { ProgressTracker } from './progressTracker';
 // Temporary debug logging - replace devLog with console.log for debugging
 const debugLog = (...args: unknown[]) => {
   if (process.env.NODE_ENV === 'development') {
@@ -605,10 +606,12 @@ class TTSManager {
   private contextMenuManager: ContextMenuManager | null = null;
   private voiceManager: VoiceManager;
   private speedManager: SpeedManager;
+  private progressTracker: ProgressTracker;
 
   constructor(voiceManager: VoiceManager, speedManager: SpeedManager) {
     this.voiceManager = voiceManager;
     this.speedManager = speedManager;
+    this.progressTracker = new ProgressTracker();
     this.init();
   }
 
@@ -694,6 +697,9 @@ class TTSManager {
         if (request.data && typeof request.data.speed === 'number') {
           const set = await this.speedManager.setSpeed(request.data.speed);
           
+          // Update progress tracker with new speed
+          this.progressTracker.updateSpeed(request.data.speed);
+          
           // If speed was changed and TTS is active, notify the content script
           if (set && this.isActive && this.currentTabId) {
             try {
@@ -701,9 +707,9 @@ class TTSManager {
                 type: MessageType.CHANGE_SPEED,
                 data: { speed: request.data.speed }
               });
-              console.log('Speed change sent to active tab:', this.currentTabId, 'new speed:', request.data.speed);
+              debugLog('Speed change sent to active tab:', this.currentTabId, 'new speed:', request.data.speed);
             } catch (error) {
-              console.warn('Could not send speed change to tab:', error);
+              debugLog('Could not send speed change to tab:', error);
             }
           }
           
@@ -722,9 +728,9 @@ class TTSManager {
               type: MessageType.CHANGE_SPEED,
               data: { speed: currentSpeed }
             });
-            console.log('Speed increment sent to active tab:', this.currentTabId, 'new speed:', currentSpeed);
+            debugLog('Speed increment sent to active tab:', this.currentTabId, 'new speed:', currentSpeed);
           } catch (error) {
-            console.warn('Could not send speed increment to tab:', error);
+            debugLog('Could not send speed increment to tab:', error);
           }
         }
         
@@ -741,9 +747,9 @@ class TTSManager {
               type: MessageType.CHANGE_SPEED,
               data: { speed: currentSpeed }
             });
-            console.log('Speed decrement sent to active tab:', this.currentTabId, 'new speed:', currentSpeed);
+            debugLog('Speed decrement sent to active tab:', this.currentTabId, 'new speed:', currentSpeed);
           } catch (error) {
-            console.warn('Could not send speed decrement to tab:', error);
+            debugLog('Could not send speed decrement to tab:', error);
           }
         }
         
@@ -753,6 +759,23 @@ class TTSManager {
         const length = await this.getCurrentTextLength();
         return { length: length };
       }
+      
+      case MessageType.PROGRESS_UPDATE:
+        // This is a broadcast from progress tracker, no response needed
+        return { success: true };
+        
+      case MessageType.GET_PROGRESS_STATE:
+        return { 
+          success: true, 
+          data: this.progressTracker.getState() 
+        };
+        
+      case MessageType.SEEK_TO_POSITION:
+        if (request.payload && typeof request.payload.position === 'number') {
+          await this.seekToPosition(request.payload.position);
+          return { success: true };
+        }
+        return { success: false, error: 'Invalid position' };
         
       default:
         throw new Error('Unknown TTS message type');
@@ -840,6 +863,9 @@ class TTSManager {
       this.isPaused = false;
       this.currentTabId = tabId;
       
+      // Start progress tracking
+      this.progressTracker.startTracking(text, 0, speed);
+      
       // Trigger context menu update immediately
       if (this.contextMenuManager) {
         debugLog('[Context-Menu-Debug] TTS started, updating context menus');
@@ -892,6 +918,9 @@ class TTSManager {
       this.isPaused = false;
       this.currentTabId = null;
       
+      // Stop progress tracking
+      this.progressTracker.stopTracking();
+      
       // Trigger context menu update immediately
       if (this.contextMenuManager) {
         debugLog('[Context-Menu-Debug] TTS stopped, updating context menus');
@@ -926,6 +955,9 @@ class TTSManager {
         // Update state immediately
         this.isPaused = true;
         
+        // Pause progress tracking
+        this.progressTracker.pauseTracking();
+        
         // Trigger context menu update immediately
         if (this.contextMenuManager) {
           debugLog('[Context-Menu-Debug] TTS paused, updating context menus');
@@ -954,6 +986,9 @@ class TTSManager {
         
         // Update state immediately
         this.isPaused = false;
+        
+        // Resume progress tracking
+        this.progressTracker.resumeTracking();
         
         // Trigger context menu update immediately
         if (this.contextMenuManager) {
@@ -1200,6 +1235,39 @@ class TTSManager {
     };
   }
   
+  private async seekToPosition(position: number): Promise<void> {
+    debugLog('[TTS-Debug] Seeking to position:', position);
+    
+    if (!this.isActive || !this.currentTabId) {
+      throw new Error('No active TTS session to seek in');
+    }
+    
+    // Update progress tracker
+    await this.progressTracker.seekToPosition(position);
+    
+    // For now, we'll stop and restart from the new position
+    // In a future enhancement, we could implement proper seeking
+    // by extracting text from the seek position and resuming
+    try {
+      // Stop current playback
+      await this.stopTTS({ source: 'seek' });
+      
+      // Get the current text from progress tracker
+      const progressState = this.progressTracker.getState();
+      if (progressState && progressState.currentText) {
+        const remainingText = progressState.currentText.substring(position);
+        
+        // Restart from the new position
+        if (remainingText.length > 0) {
+          await this.startTTS({ text: remainingText }, { tab: { id: this.currentTabId } } as chrome.runtime.MessageSender);
+        }
+      }
+    } catch (error) {
+      debugLog('[TTS-Debug] Error during seek:', error);
+      throw error;
+    }
+  }
+  
   private async getCurrentTextLength(): Promise<number> {
     // Get length of currently selected or playing text
     if (this.currentTabId) {
@@ -1386,7 +1454,8 @@ chrome.runtime.onMessage.addListener(
         if ([MessageType.START_TTS, MessageType.STOP_TTS, MessageType.FORCE_STOP_TTS, MessageType.PAUSE_TTS, 
              MessageType.RESUME_TTS, MessageType.TOGGLE_PAUSE_TTS, MessageType.TTS_STATE_CHANGED, MessageType.TTS_ERROR, MessageType.GET_TTS_STATE,
              MessageType.GET_VOICE_DATA, MessageType.SELECT_VOICE, MessageType.PREVIEW_VOICE, MessageType.UPDATE_VOICE_DATA,
-             MessageType.GET_SPEED_INFO, MessageType.SET_SPEED, MessageType.INCREMENT_SPEED, MessageType.DECREMENT_SPEED, MessageType.GET_CURRENT_TEXT_LENGTH].includes(message.type)) {
+             MessageType.GET_SPEED_INFO, MessageType.SET_SPEED, MessageType.INCREMENT_SPEED, MessageType.DECREMENT_SPEED, MessageType.GET_CURRENT_TEXT_LENGTH,
+             MessageType.PROGRESS_UPDATE, MessageType.GET_PROGRESS_STATE, MessageType.SEEK_TO_POSITION].includes(message.type)) {
           ttsManager.handleMessage(message, sender)
             .then(response => sendResponse({ success: true, data: response }))
             .catch(error => sendResponse({ success: false, error: error.message }));

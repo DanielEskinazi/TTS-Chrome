@@ -51,6 +51,16 @@ class PopupController {
     presetButtons: NodeListOf<HTMLButtonElement>;
     readingTimeDiv: HTMLDivElement;
     timeEstimate: HTMLSpanElement;
+    // Progress bar elements
+    progressSection: HTMLElement;
+    progressBar: HTMLDivElement;
+    progressFill: HTMLDivElement;
+    elapsedTime: HTMLSpanElement;
+    remainingTime: HTMLSpanElement;
+    progressPercent: HTMLSpanElement;
+    progressSpeed: HTMLSpanElement;
+    progressTooltip: HTMLDivElement;
+    tooltipTime: HTMLSpanElement;
   };
 
   private state = {
@@ -78,6 +88,18 @@ class PopupController {
   // Speed slider throttling for real-time updates
   private speedUpdateTimeout: number | null = null;
   private readonly speedUpdateDelay = 150; // ms - throttle speed updates during drag
+  
+  // Progress tracking
+  private progressState = {
+    currentPosition: 0,
+    totalLength: 0,
+    elapsedTime: 0,
+    remainingTime: 0,
+    percentComplete: 0,
+    isPlaying: false,
+    isPaused: false,
+    currentSpeed: 1.0
+  };
 
   constructor() {
     this.elements = {
@@ -104,6 +126,16 @@ class PopupController {
       presetButtons: document.querySelectorAll('.preset-btn') as NodeListOf<HTMLButtonElement>,
       readingTimeDiv: document.getElementById('readingTime') as HTMLDivElement,
       timeEstimate: document.getElementById('timeEstimate') as HTMLSpanElement,
+      // Progress bar elements
+      progressSection: document.getElementById('progressSection') as HTMLElement,
+      progressBar: document.getElementById('progressBar') as HTMLDivElement,
+      progressFill: document.getElementById('progressFill') as HTMLDivElement,
+      elapsedTime: document.getElementById('elapsedTime') as HTMLSpanElement,
+      remainingTime: document.getElementById('remainingTime') as HTMLSpanElement,
+      progressPercent: document.getElementById('progressPercent') as HTMLSpanElement,
+      progressSpeed: document.getElementById('progressSpeed') as HTMLSpanElement,
+      progressTooltip: document.getElementById('progressTooltip') as HTMLDivElement,
+      tooltipTime: document.getElementById('tooltipTime') as HTMLSpanElement,
     };
 
     this.initialize();
@@ -117,6 +149,9 @@ class PopupController {
     await this.initializeSpeedManager();
     this.setupEventListeners();
     this.updateUI();
+    
+    // Request initial progress state
+    await this.requestProgressState();
     
     // Additional speed sync attempts to handle timing issues
     setTimeout(() => this.syncSpeedWithBackground(), 500);
@@ -402,6 +437,11 @@ class PopupController {
     
     // Keyboard shortcuts
     document.addEventListener('keydown', this.handleKeyboard.bind(this));
+    
+    // Progress bar event listeners
+    this.elements.progressBar.addEventListener('click', this.handleProgressBarClick.bind(this));
+    this.elements.progressBar.addEventListener('mousemove', this.handleProgressBarHover.bind(this));
+    this.elements.progressBar.addEventListener('mouseleave', this.handleProgressBarLeave.bind(this));
 
     // Listen for TTS state changes and settings updates
     chrome.runtime.onMessage.addListener((message: Message) => {
@@ -414,6 +454,8 @@ class PopupController {
         this.loadVoiceData();
       } else if (message.type === MessageType.SPEED_CHANGED) {
         this.initializeSpeedManager();
+      } else if (message.type === MessageType.PROGRESS_UPDATE) {
+        this.handleProgressUpdate(message.data || {});
       }
     });
   }
@@ -563,6 +605,9 @@ class PopupController {
     }
 
     this.updateTTSUI();
+    
+    // Request progress state when TTS state changes
+    this.requestProgressState();
   }
 
   private async handlePlayPause() {
@@ -1166,6 +1211,109 @@ class PopupController {
     if (this.speedUpdateTimeout !== null) {
       clearTimeout(this.speedUpdateTimeout);
       this.speedUpdateTimeout = null;
+    }
+  }
+  
+  // Progress bar methods
+  private handleProgressUpdate(data: Record<string, unknown>) {
+    if (!data) return;
+    
+    // Update progress state
+    this.progressState = {
+      currentPosition: data.currentPosition as number || 0,
+      totalLength: data.totalLength as number || 0,
+      elapsedTime: data.elapsedTime as number || 0,
+      remainingTime: data.remainingTime as number || 0,
+      percentComplete: data.percentComplete as number || 0,
+      isPlaying: data.isPlaying as boolean || false,
+      isPaused: data.isPaused as boolean || false,
+      currentSpeed: data.currentSpeed as number || 1.0
+    };
+    
+    // Update UI
+    this.updateProgressUI();
+  }
+  
+  private updateProgressUI() {
+    const { percentComplete, elapsedTime, remainingTime, isPlaying, isPaused, currentSpeed } = this.progressState;
+    
+    // Show/hide progress section
+    const shouldShow = isPlaying || isPaused;
+    this.elements.progressSection.style.display = shouldShow ? 'block' : 'none';
+    
+    if (shouldShow) {
+      // Update progress bar fill
+      this.elements.progressFill.style.width = `${percentComplete}%`;
+      
+      // Update time displays
+      this.elements.elapsedTime.textContent = this.formatTime(elapsedTime);
+      this.elements.remainingTime.textContent = `-${this.formatTime(remainingTime)}`;
+      
+      // Update info displays
+      this.elements.progressPercent.textContent = `${Math.round(percentComplete)}%`;
+      this.elements.progressSpeed.textContent = `${currentSpeed}x`;
+    }
+  }
+  
+  private formatTime(milliseconds: number): string {
+    const totalSeconds = Math.floor(milliseconds / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }
+  
+  private handleProgressBarClick(event: MouseEvent) {
+    if (!this.progressState.isPlaying && !this.progressState.isPaused) return;
+    
+    const rect = this.elements.progressBar.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const percentage = (x / rect.width) * 100;
+    const position = Math.round((percentage / 100) * this.progressState.totalLength);
+    
+    // Send seek request to background
+    chrome.runtime.sendMessage({
+      type: MessageType.SEEK_TO_POSITION,
+      payload: { position }
+    });
+  }
+  
+  private handleProgressBarHover(event: MouseEvent) {
+    if (!this.progressState.isPlaying && !this.progressState.isPaused) return;
+    
+    const rect = this.elements.progressBar.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const percentage = (x / rect.width) * 100;
+    
+    // Calculate time at hover position
+    const totalTime = this.progressState.elapsedTime + this.progressState.remainingTime;
+    const hoverTime = (percentage / 100) * totalTime;
+    
+    // Update tooltip
+    this.elements.tooltipTime.textContent = this.formatTime(hoverTime);
+    this.elements.progressTooltip.style.display = 'block';
+    this.elements.progressTooltip.style.left = `${x}px`;
+  }
+  
+  private handleProgressBarLeave() {
+    this.elements.progressTooltip.style.display = 'none';
+  }
+  
+  private async requestProgressState() {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: MessageType.GET_PROGRESS_STATE
+      });
+      
+      if (response.success && response.data) {
+        this.handleProgressUpdate(response.data as Record<string, unknown>);
+      }
+    } catch (error) {
+      debugLog('Error requesting progress state:', error);
     }
   }
 }
