@@ -267,90 +267,42 @@ export class SpeechSynthesizer {
   }
 
   private async prepareForSpeech(): Promise<void> {
-    console.log('[TTS-Debug] Preparing for speech...');
-    console.log('[TTS-Debug] Current API state:', {
-      speaking: speechSynthesis.speaking,
-      paused: speechSynthesis.paused,
-      pending: speechSynthesis.pending
-    });
-    console.log('[TTS-Debug] Current internal state:', {
-      isPlaying: this.isPlaying,
-      isPaused: this.isPaused,
-      hasUtterance: !!this.currentUtterance
-    });
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.log('[TTS-Debug] Preparing for speech...');
+    }
 
-    // Strategy 1: Stop current speech if playing
+    // Step 1: Stop any current speech cleanly
     if (this.isPlaying) {
-      console.log('[TTS-Debug] Stopping current speech');
       this.stop();
     }
 
-    // Strategy 2: Debouncing - ensure enough time has passed since last stop
+    // Step 2: Respect debouncing delay for stability
     if (!this.canStart()) {
       const waitTime = this.START_DEBOUNCE_DELAY - (Date.now() - this.lastStopTime);
-      console.log(`[TTS-Debug] Debouncing: waiting ${waitTime}ms`);
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
 
-    // Strategy 3: Progressive API state resolution
-    let attempt = 1;
-    const maxAttempts = 3;
-
-    while (attempt <= maxAttempts) {
-      console.log(`[TTS-Debug] API validation attempt ${attempt}/${maxAttempts}`);
-      
-      if (this.validateAPIState()) {
-        console.log('[TTS-Debug] API state validated successfully');
-        return;
+    // Step 3: Simple state validation (now very permissive)
+    if (!this.validateAPIState()) {
+      // Only do a simple cleanup for the rare cases that fail validation
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.log('[TTS-Debug] API state needs simple cleanup');
       }
-
-      console.log(`[TTS-Debug] API state validation failed, attempt ${attempt}`);
-      
-      // Progressive recovery strategies
-      if (attempt === 1) {
-        // First attempt: Gentle reset
-        console.log('[TTS-Debug] Attempting gentle reset');
-        this.reconcileState();
-        await new Promise(resolve => setTimeout(resolve, 100));
-      } else if (attempt === 2) {
-        // Second attempt: Force reset
-        console.log('[TTS-Debug] Attempting force reset');
-        this.forceReset();
-        await new Promise(resolve => setTimeout(resolve, 200));
-      } else {
-        // Final attempt: Aggressive recovery
-        console.log('[TTS-Debug] Attempting aggressive recovery');
-        speechSynthesis.cancel();
-        this.isPlaying = false;
-        this.isPaused = false;
-        this.currentUtterance = null;
-        this.speechQueue = [];
-        await new Promise(resolve => setTimeout(resolve, 300));
-      }
-
-      attempt++;
+      speechSynthesis.cancel();
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Final fallback: Proceed with warning if API still not perfect
-    const finalState = {
-      speaking: speechSynthesis.speaking,
-      paused: speechSynthesis.paused,
-      pending: speechSynthesis.pending
-    };
-
-    console.warn('[TTS-Debug] API state not perfect after all attempts, proceeding anyway');
-    console.warn('[TTS-Debug] Final API state:', finalState);
-
-    // Set up for graceful degradation
+    // Step 4: Reset internal state for fresh start
     this.isPlaying = false;
     this.isPaused = false;
     this.currentUtterance = null;
     this.speechQueue = [];
 
-    // Only throw error for truly impossible states
-    if (speechSynthesis.pending) {
-      console.error('[TTS-Debug] API has pending operations - this may cause issues');
-      // Don't throw - just log warning and continue
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.log('[TTS-Debug] Speech preparation completed');
     }
   }
 
@@ -661,15 +613,14 @@ export class SpeechSynthesizer {
       }
     }
     
-    // Handle the case where API is paused but not speaking (stuck state)
+    // Handle truly stuck states more gracefully
     if (speechSynthesis.paused && !speechSynthesis.speaking) {
-      // eslint-disable-next-line no-console
-      console.warn('[TTS-Debug] API stuck: paused but not speaking, attempting recovery');
-      speechSynthesis.cancel();
-      this.isPlaying = false;
-      this.isPaused = false;
-      this.notifyPlaybackState('stopped');
-      return false;
+      // This can be a normal transitional state, only recover if it's persistent
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.log('[TTS-Debug] API in transitional paused state, attempting resume anyway');
+      }
+      // Don't immediately cancel - try resume first
     }
     
     try {
@@ -855,46 +806,38 @@ export class SpeechSynthesizer {
     this.notifyPlaybackState('stopped');
   }
 
-  // Validate that Web Speech API is in a workable state (more flexible than before)
+  // Validate that Web Speech API is in a workable state (permissive approach)
   private validateAPIState(): boolean {
-    // Accept these valid states:
-    // 1. Complete idle: not speaking, not paused, not pending
-    // 2. Currently paused: speaking and paused (valid pause state)
-    // 3. Clean speaking: speaking but not paused (active speech)
-    
     const isSpeaking = speechSynthesis.speaking;
     const isPaused = speechSynthesis.paused;
     const isPending = speechSynthesis.pending;
     
-    // Completely idle - perfect for new speech
-    if (!isSpeaking && !isPaused && !isPending) {
-      return true;
+    // Log current state for debugging without failing validation
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.log('[TTS-Debug] API state check:', { isSpeaking, isPaused, isPending });
     }
     
-    // Currently paused - can resume or restart
-    if (isSpeaking && isPaused && !isPending) {
-      return true;
-    }
+    // Only reject truly problematic states that would block new speech
+    // Most API states are workable if we handle them properly
     
-    // Currently speaking - can interrupt for new speech
-    if (isSpeaking && !isPaused && !isPending) {
-      return true;
-    }
+    // Accept all these as valid states:
+    // - Completely idle: !speaking && !paused && !pending
+    // - Currently speaking: speaking && !paused && !pending  
+    // - Currently paused: speaking && paused && !pending
+    // - Transitional paused: !speaking && paused (common during pause/resume transitions)
+    // - Light pending: pending but not stuck (will resolve quickly)
     
-    // Only reject truly problematic states
-    // Problem: paused but not speaking (stuck state)
-    if (!isSpeaking && isPaused) {
-      console.warn('[TTS-Debug] API stuck: paused but not speaking');
+    // Only reject if we detect a true stuck state that persists
+    // This is very rare and usually indicates a browser bug
+    if (isPending && isSpeaking && isPaused) {
+      // Triple-state condition is very unusual and potentially problematic
+      console.warn('[TTS-Debug] API in unusual triple state - may need reset');
       return false;
     }
     
-    // Problem: pending operations that might block
-    if (isPending) {
-      console.warn('[TTS-Debug] API has pending operations');
-      return false;
-    }
-    
-    // Default to allowing other states
+    // For all other states, proceed with confidence
+    // The prepareForSpeech() method will handle any necessary cleanup
     return true;
   }
 
