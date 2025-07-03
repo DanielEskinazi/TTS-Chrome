@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a TypeScript-based Chrome extension for Text-to-Speech functionality with advanced features including multiple voices, playback controls, and comprehensive text processing. The extension uses Webpack for bundling and Jest for testing.
+This is a Chrome extension for Text-to-Speech with advanced features including multiple voices, playback controls, and comprehensive text processing. The extension uses Webpack for bundling and Jest for testing.
 
 ## Repository Information
 
@@ -87,46 +87,9 @@ When a feature is completed (as per Feature Completion Tracking guidelines), **a
      - Reference to feature specification
 4. **Tag the feature** as completed per the Git Tag System
 
-### Example Workflow with Automatic PR Creation
-
-```bash
-# 1. Create a new feature branch using MCP tool
-# mcp__github__create_branch(owner="username", repo="TTS-Chrome", branch="feature/feature-2.1-basic-tts")
-
-# 2. Work on the feature, make commits
-
-# 3. Run tests and checks
-npm test
-npm run lint
-npm run typecheck
-
-# 4. Upon feature completion, automatically create PR using MCP tool
-# mcp__github__create_pull_request(
-#   owner="username",
-#   repo="TTS-Chrome",
-#   title="feat: Complete Feature 2.1 - Basic TTS Implementation",
-#   head="feature/feature-2.1-basic-tts",
-#   base="develop",
-#   body="## Summary\n- Implemented basic TTS functionality\n- Added voice selection support\n- Created message passing architecture\n\n## Changes\n- Added background service worker for TTS\n- Created content script for text selection\n- Implemented Chrome TTS API integration\n\n## Tests\n✅ All tests passing\n✅ Linting successful\n✅ Type checking passed\n\n## Feature Specification\nCompletes Feature 2.1 as defined in `specs/phase-2-core-tts/feature-2.1-basic-tts.md`"
-# )
-
-# 5. Create git tag for completed feature
-# git tag feature-2.1-completed
-```
-
-#### Cross-Website Compatibility
-
-**Test on these specific sites:**
-
-- Wikipedia article (complex formatting)
-- GitHub README (code blocks, mixed content)
-- Google Docs (dynamic content)
-- Reddit thread (nested comments)
-- Medium article (rich text)
-
 ### Required Context Loading
 
-Always load the documentation libraries in `ai_docs/` into context when working on this project:
+Always refer to the documentation libraries in `ai_docs/` when working on this project:
 
 #### Chrome Extension APIs (Comprehensive Coverage)
 
@@ -138,19 +101,8 @@ Always load the documentation libraries in `ai_docs/` into context when working 
 
 #### Development Technologies
 
-- **`ai_docs/typescript.md`**: TypeScript patterns and best practices
 - **`ai_docs/webpack.md`**: Build system configuration and patterns
 - **`ai_docs/jest.md`**: Testing framework setup and patterns
-
-#### UI and Styling
-
-- **`ai_docs/tailwindCSS.md`**: CSS utilities and responsive design patterns
-
-### Context Loading Workflow
-
-1. **Start of Session**: Read all `ai_docs/*.md` files to understand available libraries and patterns
-2. **Feature Implementation**: Reference relevant documentation for Chrome extension APIs, TypeScript patterns, and UI components
-3. **Code Reviews**: Validate implementations against documented best practices
 
 ### Chrome API Coverage
 
@@ -180,7 +132,6 @@ The extension follows Chrome MV3 architecture with distinct modules:
 
 - **Webpack** bundles TypeScript modules into separate entry points (`background.js`, `content.js`, `popup.js`, `options.js`)
 - **CopyWebpackPlugin** handles static assets (manifest, HTML files, icons)
-- **TypeScript** with strict mode, Chrome types, and ES2020 target
 
 ### Extension Architecture
 
@@ -246,30 +197,6 @@ Centralized state in background script with message-based updates to UI componen
 - `activeTab`: Access to current page content
 - `contextMenus`: Right-click menu integration
 - `tts`: Text-to-speech synthesis
-
-## Feature Implementation Notes
-
-### Voice Management
-
-- System voice enumeration on startup
-- Categorization by language, gender, quality
-- Fallback handling for unavailable voices
-- Voice testing with sample text
-
-### Playback Controls
-
-- Play/pause with position tracking
-- Speed control (0.5x to 3.0x)
-- Volume control independent of system
-- Queue management for multiple selections
-- Progress indication with time remaining
-
-### Text Selection Handling
-
-- Mouse and keyboard selection detection
-- Minimum/maximum character limits
-- Special content handling (code blocks, tables)
-- Dynamic content and SPA compatibility
 
 ## Feature Completion Tracking
 
