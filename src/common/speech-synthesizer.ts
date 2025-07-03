@@ -10,6 +10,7 @@ export interface SpeechSettings {
   pitch: number;
   volume: number;
   voice: SpeechSynthesisVoice | null;
+  fallbackMode?: boolean;
 }
 
 export interface PlaybackState {
@@ -116,18 +117,43 @@ export class SpeechSynthesizer {
   }
 
   private async loadVoices(): Promise<SpeechSynthesisVoice[]> {
+    const maxAttempts = 5;
+    const attemptDelay = 200;
+    
+    // Try multiple attempts with exponential backoff
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const voices = await this.attemptVoiceLoad(attempt === maxAttempts - 1);
+      
+      if (voices.length > 0) {
+        this.processVoices(voices);
+        return voices;
+      }
+      
+      // Wait before next attempt (exponential backoff)
+      if (attempt < maxAttempts - 1) {
+        await new Promise(resolve => setTimeout(resolve, attemptDelay * Math.pow(2, attempt)));
+      }
+    }
+    
+    // All attempts failed - use fallback strategy
+    console.warn('Voice loading failed after all attempts, using fallback strategy');
+    this.implementFallbackStrategy();
+    return [];
+  }
+  
+  private async attemptVoiceLoad(isLastAttempt: boolean): Promise<SpeechSynthesisVoice[]> {
     return new Promise((resolve) => {
       // Check cache first for faster subsequent loads
       let voices = speechSynthesis.getVoices();
       
       if (voices.length > 0) {
-        this.processVoices(voices);
         resolve(voices);
         return;
       }
 
-      // Setup voice loading with shorter timeout and fallback
+      // Setup voice loading with timeout
       let isResolved = false;
+      const timeout = isLastAttempt ? 3000 : 1000; // Longer timeout on last attempt
       
       const voicesChangedHandler = () => {
         if (isResolved) return;
@@ -136,30 +162,65 @@ export class SpeechSynthesizer {
         if (voices.length > 0) {
           isResolved = true;
           speechSynthesis.removeEventListener('voiceschanged', voicesChangedHandler);
-          this.processVoices(voices);
           resolve(voices);
         }
       };
       
       speechSynthesis.addEventListener('voiceschanged', voicesChangedHandler);
       
-      // Reduced timeout to 2 seconds instead of 5
+      // Timeout for this attempt
       setTimeout(() => {
         if (!isResolved) {
           isResolved = true;
           speechSynthesis.removeEventListener('voiceschanged', voicesChangedHandler);
-          
-          // Always resolve, even with no voices - use system default
-          if (voices.length === 0) {
-            console.warn('No voices loaded, using system default');
-            this.useSystemDefaults();
-          } else {
-            this.processVoices(voices);
-          }
-          resolve(voices);
+          resolve([]); // Empty array indicates failure
         }
-      }, 2000);
+      }, timeout);
     });
+  }
+  
+  private implementFallbackStrategy(): void {
+    // Create a minimal fallback voice configuration
+    const fallbackVoice: Partial<SpeechSynthesisVoice> = {
+      name: 'System Default (Fallback)',
+      lang: navigator.language || 'en-US',
+      localService: true,
+      default: true,
+      voiceURI: 'system-default-fallback'
+    };
+    
+    // Store fallback configuration
+    this.availableVoices = [];
+    this.defaultVoice = null;
+    this.settings.voice = null;
+    this.settings.fallbackMode = true;
+    
+    // Log fallback activation
+    console.warn('TTS Extension: Activated fallback mode - using browser default voice');
+    
+    // Test TTS availability
+    this.testTTSAvailability();
+  }
+  
+  private async testTTSAvailability(): Promise<boolean> {
+    try {
+      // Test with a silent utterance
+      const testUtterance = new SpeechSynthesisUtterance('');
+      testUtterance.volume = 0;
+      
+      return new Promise((resolve) => {
+        testUtterance.onend = () => resolve(true);
+        testUtterance.onerror = () => resolve(false);
+        
+        speechSynthesis.speak(testUtterance);
+        
+        // Timeout fallback
+        setTimeout(() => resolve(false), 1000);
+      });
+    } catch (error) {
+      console.error('TTS availability test failed:', error);
+      return false;
+    }
   }
 
   private processVoices(voices: SpeechSynthesisVoice[]): void {
@@ -175,17 +236,6 @@ export class SpeechSynthesizer {
     }
   }
 
-  private useSystemDefaults(): void {
-    // Use minimal fallback configuration when no voices are available
-    this.availableVoices = [];
-    this.defaultVoice = null;
-    this.settings.voice = null;
-    
-    if (process.env.NODE_ENV === 'development') {
-      // eslint-disable-next-line no-console
-      console.log('Using system default voice (no enumeration available)');
-    }
-  }
 
   private selectDefaultVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
     // Priority order: English native voices, English voices, system default, any voice

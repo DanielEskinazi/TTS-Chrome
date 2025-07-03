@@ -29,6 +29,21 @@ class TextSelectionHandler {
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private messageQueue: Message[] = [];
   private isReconnecting: boolean = false;
+  
+  // Store bound event listeners for cleanup
+  private eventListeners: {
+    selectionchange: ((e: Event) => void) | null;
+    mouseup: ((e: MouseEvent) => void) | null;
+    keyup: ((e: KeyboardEvent) => void) | null;
+    keydown: ((e: KeyboardEvent) => void) | null;
+    message: ((message: Message, sender: chrome.runtime.MessageSender, sendResponse: (response?: MessageResponse) => void) => boolean | void) | null;
+  } = {
+    selectionchange: null,
+    mouseup: null,
+    keyup: null,
+    keydown: null,
+    message: null
+  };
 
   public setContentController(controller: ContentScriptController): void {
     this.contentController = controller;
@@ -57,20 +72,27 @@ class TextSelectionHandler {
       return;
     }
 
+    // Create and store bound event listeners
+    this.eventListeners.selectionchange = this.handleSelectionChange.bind(this);
+    this.eventListeners.mouseup = this.handleMouseUp.bind(this);
+    this.eventListeners.keyup = this.handleKeyUp.bind(this);
+    this.eventListeners.keydown = this.handleKeyDown.bind(this);
+    this.eventListeners.message = this.handleMessage.bind(this);
+
     // Listen for selection changes
-    document.addEventListener('selectionchange', this.handleSelectionChange.bind(this));
+    document.addEventListener('selectionchange', this.eventListeners.selectionchange);
     
     // Listen for mouse events to detect selection completion
-    document.addEventListener('mouseup', this.handleMouseUp.bind(this));
+    document.addEventListener('mouseup', this.eventListeners.mouseup);
     
     // Listen for keyboard events for keyboard-based selection
-    document.addEventListener('keyup', this.handleKeyUp.bind(this));
+    document.addEventListener('keyup', this.eventListeners.keyup);
     
     // Add keyboard event listeners for stop functionality
-    document.addEventListener('keydown', this.handleKeyDown.bind(this));
+    document.addEventListener('keydown', this.eventListeners.keydown);
     
     // Listen for messages from background script
-    chrome.runtime.onMessage.addListener(this.handleMessage.bind(this));
+    chrome.runtime.onMessage.addListener(this.eventListeners.message as any);
     
     // Setup keyboard shortcuts
     this.setupKeyboardShortcuts();
@@ -86,6 +108,23 @@ class TextSelectionHandler {
   }
 
   public cleanup(): void {
+    // Remove event listeners
+    if (this.eventListeners.selectionchange) {
+      document.removeEventListener('selectionchange', this.eventListeners.selectionchange);
+    }
+    if (this.eventListeners.mouseup) {
+      document.removeEventListener('mouseup', this.eventListeners.mouseup);
+    }
+    if (this.eventListeners.keyup) {
+      document.removeEventListener('keyup', this.eventListeners.keyup);
+    }
+    if (this.eventListeners.keydown) {
+      document.removeEventListener('keydown', this.eventListeners.keydown);
+    }
+    if (this.eventListeners.message) {
+      chrome.runtime.onMessage.removeListener(this.eventListeners.message as any);
+    }
+    
     // Stop all monitoring and timeouts
     this.stopHealthMonitoring();
     
@@ -96,6 +135,15 @@ class TextSelectionHandler {
     this.isDisconnected = false;
     this.isReconnecting = false;
     this.reconnectionAttempts = 0;
+    
+    // Clear listeners references
+    this.eventListeners = {
+      selectionchange: null,
+      mouseup: null,
+      keyup: null,
+      keydown: null,
+      message: null
+    };
     
     devLog('[TTS] TextSelectionHandler cleanup completed');
   }
@@ -451,13 +499,16 @@ class TextSelectionHandler {
     });
   }
 
-  public handleMessage(request: Message, _sender: chrome.runtime.MessageSender, sendResponse: (response?: Record<string, unknown>) => void): void {
+  public handleMessage(request: Message, _sender: chrome.runtime.MessageSender, sendResponse: (response?: MessageResponse) => void): boolean | void {
     switch (request.type) {
       case MessageType.GET_SELECTION:
         sendResponse({
-          text: this.selectionText,
-          hasSelection: this.isSelectionActive,
-          info: this.selectionInfo
+          success: true,
+          data: {
+            text: this.selectionText,
+            hasSelection: this.isSelectionActive,
+            info: this.selectionInfo
+          }
         });
         break;
         
@@ -498,7 +549,7 @@ class TextSelectionHandler {
         
       case MessageType.TOGGLE_PAUSE_SPEECH: {
         const pauseState = this.handleTogglePauseSpeech();
-        sendResponse(pauseState);
+        sendResponse({ success: true, data: pauseState });
         break;
       }
 
@@ -514,7 +565,7 @@ class TextSelectionHandler {
         
       case MessageType.GET_CURRENT_TEXT_LENGTH: {
         const length = this.getCurrentTextLength();
-        sendResponse({ length: length });
+        sendResponse({ success: true, data: { length: length } });
         break;
       }
         
@@ -1279,7 +1330,7 @@ class TextSelectionHandler {
     return this.clearSelection();
   }
 
-  public testHandleMessage(request: Message, sender: chrome.runtime.MessageSender, sendResponse: (response?: Record<string, unknown>) => void): void {
+  public testHandleMessage(request: Message, sender: chrome.runtime.MessageSender, sendResponse: (response?: MessageResponse) => void): boolean | void {
     return this.handleMessage(request, sender, sendResponse);
   }
 

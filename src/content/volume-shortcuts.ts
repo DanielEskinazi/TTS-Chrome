@@ -6,28 +6,13 @@ export class VolumeShortcutHandler {
   private volumeNotification: HTMLElement | null = null;
 
   initialize(): void {
-    // Register Chrome commands
-    if (typeof chrome !== 'undefined' && chrome.commands) {
-      chrome.commands.onCommand.addListener(this.handleCommand);
-    }
+    // Chrome commands are now handled in the background script
+    // Content script only handles direct keyboard events
     
     // Listen for keyboard events
     document.addEventListener('keydown', this.handleKeyPress);
   }
 
-  private handleCommand = (command: string) => {
-    switch (command) {
-      case 'volume-up':
-        this.adjustVolume(this.volumeStep);
-        break;
-      case 'volume-down':
-        this.adjustVolume(-this.volumeStep);
-        break;
-      case 'toggle-mute':
-        this.toggleMute();
-        break;
-    }
-  };
 
   private handleKeyPress = (event: KeyboardEvent) => {
     // Only handle if extension has focus or with modifier key
@@ -234,10 +219,6 @@ export class VolumeShortcutHandler {
   destroy(): void {
     // Clean up event listeners
     document.removeEventListener('keydown', this.handleKeyPress);
-    
-    if (typeof chrome !== 'undefined' && chrome.commands) {
-      chrome.commands.onCommand.removeListener(this.handleCommand);
-    }
 
     // Remove notification if exists
     if (this.volumeNotification) {

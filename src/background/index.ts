@@ -21,6 +21,12 @@ class SelectionManager {
   private currentSelection: SelectionData | null = null;
   private activeTab: chrome.tabs.Tab | null = null;
   private contextMenuManager: ContextMenuManager | null = null;
+  
+  // Store bound listeners for proper cleanup
+  private tabListeners = {
+    onActivated: null as ((activeInfo: chrome.tabs.TabActiveInfo) => void) | null,
+    onUpdated: null as ((tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void) | null
+  };
 
   constructor() {
     this.init();
@@ -31,11 +37,35 @@ class SelectionManager {
   }
 
   private init() {
+    // Create bound listeners
+    this.tabListeners.onActivated = this.handleTabChange.bind(this);
+    this.tabListeners.onUpdated = this.handleTabUpdate.bind(this);
+    
     // Listen for tab changes to clear selection
-    chrome.tabs.onActivated.addListener(this.handleTabChange.bind(this));
-    chrome.tabs.onUpdated.addListener(this.handleTabUpdate.bind(this));
+    if (this.tabListeners.onActivated) {
+      chrome.tabs.onActivated.addListener(this.tabListeners.onActivated);
+    }
+    if (this.tabListeners.onUpdated) {
+      chrome.tabs.onUpdated.addListener(this.tabListeners.onUpdated);
+    }
     
     debugLog('Selection Manager initialized');
+  }
+  
+  public cleanup(): void {
+    // Remove event listeners
+    if (this.tabListeners.onActivated) {
+      chrome.tabs.onActivated.removeListener(this.tabListeners.onActivated);
+    }
+    if (this.tabListeners.onUpdated) {
+      chrome.tabs.onUpdated.removeListener(this.tabListeners.onUpdated);
+    }
+    
+    // Clear references
+    this.currentSelection = null;
+    this.activeTab = null;
+    
+    debugLog('Selection Manager cleaned up');
   }
 
   public handleSelectionMessage(request: Message, sender: chrome.runtime.MessageSender): Record<string, unknown> | null {
@@ -606,6 +636,13 @@ class TTSManager {
   private contextMenuManager: ContextMenuManager | null = null;
   private voiceManager: VoiceManager;
   private speedManager: SpeedManager;
+  
+  // Store bound listeners for proper cleanup
+  private tabListeners = {
+    onActivated: null as ((activeInfo: chrome.tabs.TabActiveInfo) => void) | null,
+    onUpdated: null as ((tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => void) | null,
+    onRemoved: null as ((tabId: number, removeInfo: chrome.tabs.TabRemoveInfo) => void) | null
+  };
 
   constructor(voiceManager: VoiceManager, speedManager: SpeedManager) {
     this.voiceManager = voiceManager;
@@ -618,12 +655,44 @@ class TTSManager {
   }
 
   private init(): void {
+    // Create bound listeners
+    this.tabListeners.onActivated = this.handleTabChange.bind(this);
+    this.tabListeners.onUpdated = this.handleTabUpdate.bind(this);
+    this.tabListeners.onRemoved = this.handleTabRemoved.bind(this);
+    
     // Stop TTS when tab changes
-    chrome.tabs.onActivated.addListener(this.handleTabChange.bind(this));
-    chrome.tabs.onUpdated.addListener(this.handleTabUpdate.bind(this));
-    chrome.tabs.onRemoved.addListener(this.handleTabRemoved.bind(this));
+    if (this.tabListeners.onActivated) {
+      chrome.tabs.onActivated.addListener(this.tabListeners.onActivated);
+    }
+    if (this.tabListeners.onUpdated) {
+      chrome.tabs.onUpdated.addListener(this.tabListeners.onUpdated);
+    }
+    if (this.tabListeners.onRemoved) {
+      chrome.tabs.onRemoved.addListener(this.tabListeners.onRemoved);
+    }
     
     debugLog('TTS Manager initialized with tab navigation listeners');
+  }
+  
+  public cleanup(): void {
+    // Remove event listeners
+    if (this.tabListeners.onActivated) {
+      chrome.tabs.onActivated.removeListener(this.tabListeners.onActivated);
+    }
+    if (this.tabListeners.onUpdated) {
+      chrome.tabs.onUpdated.removeListener(this.tabListeners.onUpdated);
+    }
+    if (this.tabListeners.onRemoved) {
+      chrome.tabs.onRemoved.removeListener(this.tabListeners.onRemoved);
+    }
+    
+    // Clear any pending timeouts
+    this.clearStopTimeout();
+    
+    // Clear references
+    this.currentTabId = null;
+    
+    debugLog('TTS Manager cleaned up');
   }
 
   async handleMessage(request: Message, sender: chrome.runtime.MessageSender): Promise<Record<string, unknown>> {
@@ -1250,6 +1319,9 @@ let volumeControlService: VolumeControlService;
 let isInitialized = false;
 let isInitializing = false;
 
+// Store command listener for cleanup
+let commandListener: ((command: string) => void) | null = null;
+
 async function initializeExtension(): Promise<boolean> {
   // Prevent multiple simultaneous initializations
   if (isInitialized || isInitializing) {
@@ -1310,6 +1382,39 @@ async function initializeExtension(): Promise<boolean> {
       console.warn('Context menu creation failed (non-critical):', error);
     }
     
+    // Register Chrome commands listener for volume shortcuts
+    // Remove any existing listener first
+    if (commandListener) {
+      chrome.commands.onCommand.removeListener(commandListener);
+    }
+    
+    commandListener = (command: string) => {
+      debugLog('[VolumeControl] Chrome command received:', command);
+      
+      switch (command) {
+        case 'volume-up':
+          volumeControlService.handleMessage(
+            { type: MessageType.ADJUST_VOLUME, delta: 10 },
+            {} as chrome.runtime.MessageSender
+          );
+          break;
+        case 'volume-down':
+          volumeControlService.handleMessage(
+            { type: MessageType.ADJUST_VOLUME, delta: -10 },
+            {} as chrome.runtime.MessageSender
+          );
+          break;
+        case 'toggle-mute':
+          volumeControlService.handleMessage(
+            { type: MessageType.TOGGLE_MUTE },
+            {} as chrome.runtime.MessageSender
+          );
+          break;
+      }
+    };
+    
+    chrome.commands.onCommand.addListener(commandListener);
+    
     isInitialized = true;
     debugLog('Extension initialization completed successfully');
     return true;
@@ -1335,12 +1440,28 @@ chrome.runtime.onStartup.addListener(() => {
 // Handle service worker suspension/wake (clean shutdown)
 chrome.runtime.onSuspend?.addListener(() => {
   debugLog('Service worker being suspended...');
-  // Clean up any pending operations
+  
+  // Clean up event listeners
+  if (selectionManager) {
+    selectionManager.cleanup();
+  }
   if (ttsManager) {
+    // Stop TTS first
     ttsManager.stopTTS({ source: 'suspension', force: true }).catch(() => {
       // Ignore errors during suspension
     });
+    // Then cleanup listeners
+    ttsManager.cleanup();
   }
+  
+  // Remove command listener
+  if (commandListener) {
+    chrome.commands.onCommand.removeListener(commandListener);
+    commandListener = null;
+  }
+  
+  // Mark as not initialized so it will reinitialize on wake
+  isInitialized = false;
 });
 
 // Simple initialization - no aggressive restart detection
