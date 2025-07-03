@@ -1328,6 +1328,160 @@ let isInitializing = false;
 // Store command listener for cleanup
 let commandListener: ((command: string) => void) | null = null;
 
+function setupMessageHandlers(): void {
+  if (!messageQueueService) {
+    debugLog('MessageQueueService not available for handler registration');
+    return;
+  }
+
+  // Register handlers for different message types
+  
+  // TTS-related messages
+  messageQueueService.registerHandler(MessageType.GET_TTS_STATE, async (message, sender) => {
+    if (ttsManager) {
+      const response = await ttsManager.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'TTS Manager not available' };
+  });
+
+  messageQueueService.registerHandler(MessageType.START_TTS, async (message, sender) => {
+    if (ttsManager) {
+      const response = await ttsManager.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'TTS Manager not available' };
+  });
+
+  messageQueueService.registerHandler(MessageType.STOP_TTS, async (message, sender) => {
+    if (ttsManager) {
+      const response = await ttsManager.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'TTS Manager not available' };
+  });
+
+  // Speed-related messages
+  messageQueueService.registerHandler(MessageType.GET_SPEED_INFO, async (message, sender) => {
+    if (ttsManager && speedManager && speedManager.isReady()) {
+      const response = await ttsManager.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'Speed Manager not ready' };
+  });
+
+  // Volume-related messages  
+  messageQueueService.registerHandler(MessageType.GET_VOLUME_STATE, async (message, sender) => {
+    if (volumeControlService) {
+      const response = await volumeControlService.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'Volume Control Service not available' };
+  });
+
+  // Voice-related messages
+  messageQueueService.registerHandler(MessageType.GET_VOICE_DATA, async (message, sender) => {
+    if (ttsManager) {
+      const response = await ttsManager.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'TTS Manager not available' };
+  });
+
+  messageQueueService.registerHandler(MessageType.SELECT_VOICE, async (message, sender) => {
+    if (ttsManager) {
+      const response = await ttsManager.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'TTS Manager not available' };
+  });
+
+  messageQueueService.registerHandler(MessageType.PREVIEW_VOICE, async (message, sender) => {
+    if (ttsManager) {
+      const response = await ttsManager.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'TTS Manager not available' };
+  });
+
+  // More TTS controls
+  messageQueueService.registerHandler(MessageType.PAUSE_TTS, async (message, sender) => {
+    if (ttsManager) {
+      const response = await ttsManager.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'TTS Manager not available' };
+  });
+
+  messageQueueService.registerHandler(MessageType.RESUME_TTS, async (message, sender) => {
+    if (ttsManager) {
+      const response = await ttsManager.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'TTS Manager not available' };
+  });
+
+  messageQueueService.registerHandler(MessageType.TOGGLE_PAUSE_TTS, async (message, sender) => {
+    if (ttsManager) {
+      const response = await ttsManager.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'TTS Manager not available' };
+  });
+
+  // Speed controls
+  messageQueueService.registerHandler(MessageType.SET_SPEED, async (message, sender) => {
+    if (ttsManager && speedManager && speedManager.isReady()) {
+      const response = await ttsManager.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'Speed Manager not ready' };
+  });
+
+  messageQueueService.registerHandler(MessageType.INCREMENT_SPEED, async (message, sender) => {
+    if (ttsManager && speedManager && speedManager.isReady()) {
+      const response = await ttsManager.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'Speed Manager not ready' };
+  });
+
+  messageQueueService.registerHandler(MessageType.DECREMENT_SPEED, async (message, sender) => {
+    if (ttsManager && speedManager && speedManager.isReady()) {
+      const response = await ttsManager.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'Speed Manager not ready' };
+  });
+
+  // Volume controls
+  messageQueueService.registerHandler(MessageType.SET_VOLUME, async (message, sender) => {
+    if (volumeControlService) {
+      const response = await volumeControlService.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'Volume Control Service not available' };
+  });
+
+  messageQueueService.registerHandler(MessageType.ADJUST_VOLUME, async (message, sender) => {
+    if (volumeControlService) {
+      const response = await volumeControlService.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'Volume Control Service not available' };
+  });
+
+  messageQueueService.registerHandler(MessageType.TOGGLE_MUTE, async (message, sender) => {
+    if (volumeControlService) {
+      const response = await volumeControlService.handleMessage(message, sender);
+      return { success: true, data: response };
+    }
+    return { success: false, error: 'Volume Control Service not available' };
+  });
+
+  debugLog('Message handlers registered with queue service');
+}
+
 async function initializeExtension(): Promise<boolean> {
   // Prevent multiple simultaneous initializations
   if (isInitialized || isInitializing) {
@@ -1401,6 +1555,9 @@ async function initializeExtension(): Promise<boolean> {
     selectionManager.setContextMenuManager(contextMenuManager);
     contextMenuManager.setTTSManager(ttsManager);
     ttsManager.setContextMenuManager(contextMenuManager);
+    
+    // Register message handlers with the queue service
+    setupMessageHandlers();
     
     // Create context menu (idempotent operation)
     try {
@@ -1543,6 +1700,38 @@ chrome.runtime.onMessage.addListener(
           error: 'Extension is initializing, please try again in a moment' 
         });
         return true;
+      }
+    }
+
+    // Try MessageQueueService for queued message types first
+    if (messageQueueService) {
+      const queuedMessageTypes = [
+        MessageType.GET_TTS_STATE,
+        MessageType.START_TTS,
+        MessageType.STOP_TTS,
+        MessageType.PAUSE_TTS,
+        MessageType.RESUME_TTS,
+        MessageType.TOGGLE_PAUSE_TTS,
+        MessageType.GET_SPEED_INFO,
+        MessageType.SET_SPEED,
+        MessageType.INCREMENT_SPEED,
+        MessageType.DECREMENT_SPEED,
+        MessageType.GET_VOLUME_STATE,
+        MessageType.SET_VOLUME,
+        MessageType.ADJUST_VOLUME,
+        MessageType.TOGGLE_MUTE,
+        MessageType.GET_VOICE_DATA,
+        MessageType.SELECT_VOICE,
+        MessageType.PREVIEW_VOICE
+      ];
+      
+      if (queuedMessageTypes.includes(message.type)) {
+        messageQueueService.queueMessage(message, sender, (response) => {
+          if (response) {
+            sendResponse(response);
+          }
+        });
+        return true; // Will respond asynchronously
       }
     }
 
