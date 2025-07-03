@@ -7,6 +7,17 @@ import {
   debugStateTransition,
 } from '@common/state-validator';
 
+// Speed info interface
+interface SpeedInfo {
+  current: number;
+  default: number;
+  min: number;
+  max: number;
+  step: number;
+  presets: number[];
+  formatted: string;
+}
+
 // Temporary debug logging - replace devLog with console.log for debugging
 const debugLog = (...args: unknown[]) => {
   if (process.env.NODE_ENV === 'development') {
@@ -33,6 +44,20 @@ class PopupController {
     voiceSelect: HTMLSelectElement;
     previewBtn: HTMLButtonElement;
     initStatus: HTMLDivElement;
+    speedSlider: HTMLInputElement;
+    speedValue: HTMLSpanElement;
+    speedUpBtn: HTMLButtonElement;
+    speedDownBtn: HTMLButtonElement;
+    presetButtons: NodeListOf<HTMLButtonElement>;
+    readingTimeDiv: HTMLDivElement;
+    timeEstimate: HTMLSpanElement;
+    volumeSlider: HTMLInputElement;
+    volumeValue: HTMLSpanElement;
+    volumePercentage: HTMLSpanElement;
+    muteBtn: HTMLButtonElement;
+    volumePresetButtons: NodeListOf<HTMLButtonElement>;
+    domainVolumeIndicator: HTMLDivElement;
+    clearDomainVolumeBtn: HTMLButtonElement;
   };
 
   private state = {
@@ -55,6 +80,22 @@ class PopupController {
   };
 
   private isPreviewPlaying = false;
+  private currentSpeed = 1.0;
+  
+  // Speed slider throttling for real-time updates
+  private speedUpdateTimeout: number | null = null;
+  private readonly speedUpdateDelay = 150; // ms - throttle speed updates during drag
+  
+  // Volume control state
+  private volumeState = {
+    volume: 70,
+    isMuted: false,
+    domainVolume: null as number | null
+  };
+  
+  // Volume slider throttling
+  private volumeUpdateTimeout: number | null = null;
+  private readonly volumeUpdateDelay = 100; // ms - throttle volume updates during drag
 
   constructor() {
     this.elements = {
@@ -74,6 +115,20 @@ class PopupController {
       voiceSelect: document.getElementById('voiceSelect') as HTMLSelectElement,
       previewBtn: document.getElementById('previewBtn') as HTMLButtonElement,
       initStatus: document.getElementById('initStatus') as HTMLDivElement,
+      speedSlider: document.getElementById('speedSlider') as HTMLInputElement,
+      speedValue: document.getElementById('speedValue') as HTMLSpanElement,
+      speedUpBtn: document.getElementById('speedUpBtn') as HTMLButtonElement,
+      speedDownBtn: document.getElementById('speedDownBtn') as HTMLButtonElement,
+      presetButtons: document.querySelectorAll('.preset-btn') as NodeListOf<HTMLButtonElement>,
+      readingTimeDiv: document.getElementById('readingTime') as HTMLDivElement,
+      timeEstimate: document.getElementById('timeEstimate') as HTMLSpanElement,
+      volumeSlider: document.getElementById('volumeSlider') as HTMLInputElement,
+      volumeValue: document.getElementById('volumeValue') as HTMLSpanElement,
+      volumePercentage: document.getElementById('volumePercentage') as HTMLSpanElement,
+      muteBtn: document.getElementById('muteBtn') as HTMLButtonElement,
+      volumePresetButtons: document.querySelectorAll('.volume-preset-btn') as NodeListOf<HTMLButtonElement>,
+      domainVolumeIndicator: document.getElementById('domainVolumeIndicator') as HTMLDivElement,
+      clearDomainVolumeBtn: document.getElementById('clearDomainVolumeBtn') as HTMLButtonElement,
     };
 
     this.initialize();
@@ -84,8 +139,29 @@ class PopupController {
     await this.updateTTSState();
     await this.enumerateAndUpdateVoices();
     await this.loadVoiceData();
+    await this.initializeSpeedManager();
+    await this.initializeVolumeManager();
     this.setupEventListeners();
     this.updateUI();
+    
+    // Additional speed sync attempts to handle timing issues
+    setTimeout(() => this.syncSpeedWithBackground(), 500);
+    setTimeout(() => this.syncSpeedWithBackground(), 1500);
+  }
+
+  private async syncSpeedWithBackground() {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: MessageType.GET_SPEED_INFO
+      });
+      
+      if (response && response.speedInfo) {
+        debugLog('Popup: Background speed sync successful:', response.speedInfo);
+        this.updateSpeedUI(response.speedInfo);
+      }
+    } catch (error) {
+      debugLog('Popup: Background speed sync failed:', error);
+    }
   }
 
   private async loadState() {
@@ -278,6 +354,55 @@ class PopupController {
     }
   }
 
+  private async initializeSpeedManager(retryCount = 0) {
+    const maxRetries = 3;
+    const retryDelay = 1000; // 1 second
+    
+    try {
+      debugLog('Popup: Initializing speed manager, attempt:', retryCount + 1);
+      
+      const response = await chrome.runtime.sendMessage({
+        type: MessageType.GET_SPEED_INFO
+      });
+      
+      debugLog('Popup: GET_SPEED_INFO response:', response);
+      
+      // Handle wrapped response format: { success: true, data: { speedInfo: {...} } }
+      // or direct format: { speedInfo: {...} }
+      const speedInfo = response?.data?.speedInfo || response?.speedInfo;
+      
+      if (speedInfo) {
+        this.updateSpeedUI(speedInfo);
+        debugLog('Popup: Speed manager initialized successfully');
+      } else if (response && response.error) {
+        // Check if it's an initialization error
+        const errorMessage = response.error || 'Unknown error';
+        if (errorMessage.includes('not yet initialized') && retryCount < maxRetries) {
+          debugLog('Popup: SpeedManager not ready, retrying in', retryDelay, 'ms, attempt:', retryCount + 1);
+          setTimeout(() => {
+            this.initializeSpeedManager(retryCount + 1);
+          }, retryDelay);
+        } else {
+          debugLog('Popup: Speed manager initialization failed after retries:', errorMessage);
+          this.showSpeedInitializationError(errorMessage);
+        }
+      } else {
+        debugLog('Popup: Invalid response from speed manager:', response);
+        this.showSpeedInitializationError('Invalid response from background script');
+      }
+    } catch (error) {
+      debugLog('Popup: Error initializing speed manager:', error);
+      if (retryCount < maxRetries) {
+        debugLog('Popup: Retrying speed manager initialization in', retryDelay, 'ms');
+        setTimeout(() => {
+          this.initializeSpeedManager(retryCount + 1);
+        }, retryDelay);
+      } else {
+        this.showSpeedInitializationError('Failed to communicate with background script');
+      }
+    }
+  }
+
   private setupEventListeners() {
     this.elements.speakPage.addEventListener('click', () => this.speakCurrentPage());
     this.elements.testSpeak.addEventListener('click', () => this.testSpeech());
@@ -291,6 +416,29 @@ class PopupController {
       chrome.runtime.openOptionsPage();
     });
 
+    // Speed control listeners
+    this.elements.speedSlider.addEventListener('input', this.handleSpeedSliderChange.bind(this));
+    this.elements.speedSlider.addEventListener('change', this.handleSpeedSliderCommit.bind(this));
+    this.elements.speedUpBtn.addEventListener('click', this.handleSpeedUp.bind(this));
+    this.elements.speedDownBtn.addEventListener('click', this.handleSpeedDown.bind(this));
+    
+    this.elements.presetButtons.forEach(btn => {
+      btn.addEventListener('click', this.handlePresetClick.bind(this));
+    });
+    
+    // Volume control listeners
+    this.elements.volumeSlider.addEventListener('input', this.handleVolumeSliderChange.bind(this));
+    this.elements.volumeSlider.addEventListener('change', this.handleVolumeSliderCommit.bind(this));
+    this.elements.muteBtn.addEventListener('click', this.handleMuteToggle.bind(this));
+    this.elements.clearDomainVolumeBtn.addEventListener('click', this.handleClearDomainVolume.bind(this));
+    
+    this.elements.volumePresetButtons.forEach(btn => {
+      btn.addEventListener('click', this.handleVolumePresetClick.bind(this));
+    });
+    
+    // Keyboard shortcuts
+    document.addEventListener('keydown', this.handleKeyboard.bind(this));
+
     // Listen for TTS state changes and settings updates
     chrome.runtime.onMessage.addListener((message: Message) => {
       if (message.type === MessageType.SETTINGS_UPDATED) {
@@ -300,6 +448,10 @@ class PopupController {
         this.handleTTSStateChange(message.payload || {});
       } else if (message.type === MessageType.VOICE_CHANGED) {
         this.loadVoiceData();
+      } else if (message.type === MessageType.SPEED_CHANGED) {
+        this.initializeSpeedManager();
+      } else if (message.type === MessageType.VOLUME_CHANGED) {
+        this.handleVolumeChanged(message.payload || {});
       }
     });
   }
@@ -768,6 +920,272 @@ class PopupController {
   }
 
 
+  private updateSpeedUI(speedInfo: SpeedInfo) {
+    this.currentSpeed = speedInfo.current;
+    
+    // Ensure controls are enabled when we have valid speed data
+    this.elements.speedSlider.disabled = false;
+    this.elements.speedSlider.style.opacity = '1';
+    
+    // Update slider
+    this.elements.speedSlider.value = speedInfo.current.toString();
+    this.elements.speedSlider.min = speedInfo.min.toString();
+    this.elements.speedSlider.max = speedInfo.max.toString();
+    this.elements.speedSlider.step = speedInfo.step.toString();
+    
+    // Update display
+    this.elements.speedValue.textContent = speedInfo.formatted;
+    
+    // Update preset buttons
+    this.updatePresetButtons(speedInfo.current);
+    
+    // Update button states based on current speed limits
+    this.elements.speedDownBtn.disabled = speedInfo.current <= speedInfo.min;
+    this.elements.speedUpBtn.disabled = speedInfo.current >= speedInfo.max;
+  }
+
+  private updatePresetButtons(currentSpeed: number) {
+    this.elements.presetButtons.forEach(btn => {
+      const presetSpeed = parseFloat(btn.dataset.speed || '1');
+      if (Math.abs(presetSpeed - currentSpeed) < 0.05) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+  }
+
+  private handleSpeedSliderChange(event: Event) {
+    const speed = parseFloat((event.target as HTMLInputElement).value);
+    
+    // Immediate UI feedback
+    this.elements.speedValue.textContent = speed.toFixed(1) + 'x';
+    this.updatePresetButtons(speed);
+    this.updateTimeEstimate(speed);
+    
+    // Throttled real-time speed updates during drag
+    this.scheduleSpeedUpdate(speed);
+  }
+
+  private scheduleSpeedUpdate(speed: number) {
+    // Clear any pending speed update
+    if (this.speedUpdateTimeout !== null) {
+      clearTimeout(this.speedUpdateTimeout);
+    }
+    
+    // Schedule new speed update with throttling
+    this.speedUpdateTimeout = window.setTimeout(async () => {
+      try {
+        await chrome.runtime.sendMessage({
+          type: MessageType.SET_SPEED,
+          data: { speed: speed }
+        });
+        this.currentSpeed = speed;
+        debugLog('Real-time speed update:', speed);
+      } catch (error) {
+        debugLog('Real-time speed update failed, applying locally:', error);
+        // Apply locally even if background communication fails
+        this.currentSpeed = speed;
+      }
+      this.speedUpdateTimeout = null;
+    }, this.speedUpdateDelay);
+  }
+
+  private async handleSpeedSliderCommit(event: Event) {
+    const speed = parseFloat((event.target as HTMLInputElement).value);
+    
+    // Clear any pending throttled update since we're committing immediately
+    if (this.speedUpdateTimeout !== null) {
+      clearTimeout(this.speedUpdateTimeout);
+      this.speedUpdateTimeout = null;
+    }
+    
+    // Final speed commit on drag end
+    this.currentSpeed = speed;
+    await this.setSpeed(speed);
+  }
+
+  private async handleSpeedUp() {
+    try {
+      await chrome.runtime.sendMessage({
+        type: MessageType.INCREMENT_SPEED
+      });
+      
+      await this.initializeSpeedManager();
+    } catch (error) {
+      debugLog('Error incrementing speed:', error);
+    }
+  }
+
+  private async handleSpeedDown() {
+    try {
+      await chrome.runtime.sendMessage({
+        type: MessageType.DECREMENT_SPEED
+      });
+      
+      await this.initializeSpeedManager();
+    } catch (error) {
+      debugLog('Error decrementing speed:', error);
+    }
+  }
+
+  private async handlePresetClick(event: Event) {
+    const speed = parseFloat((event.target as HTMLButtonElement).dataset.speed || '1');
+    
+    // Immediately update UI for responsive feedback
+    this.updatePresetButtons(speed);
+    this.elements.speedSlider.value = speed.toString();
+    this.elements.speedValue.textContent = speed.toFixed(1) + 'x';
+    
+    await this.setSpeed(speed);
+  }
+
+  private async setSpeed(speed: number) {
+    try {
+      await chrome.runtime.sendMessage({
+        type: MessageType.SET_SPEED,
+        data: { speed: speed }
+      });
+      
+      // Try to update from background, but don't fail if it's unavailable
+      await this.initializeSpeedManager().catch(() => {
+        debugLog('Background update failed, using local speed value');
+      });
+      
+      this.showTemporaryMessage(`Speed set to ${speed}x`);
+    } catch (error) {
+      debugLog('Background communication failed, applying speed locally:', error);
+      
+      // Fallback: Apply speed change locally
+      this.currentSpeed = speed;
+      this.elements.speedValue.textContent = speed.toFixed(1) + 'x';
+      this.updatePresetButtons(speed);
+      
+      // Show message indicating local-only mode
+      this.showTemporaryMessage(`Speed set to ${speed}x (local mode)`);
+    }
+  }
+
+  private handleKeyboard(event: KeyboardEvent) {
+    // Speed control shortcuts
+    if (event.key === '+' || event.key === '=') {
+      event.preventDefault();
+      this.handleSpeedUp();
+    } else if (event.key === '-' || event.key === '_') {
+      event.preventDefault();
+      this.handleSpeedDown();
+    } else if (event.key >= '1' && event.key <= '5') {
+      // Number keys for presets
+      const presetIndex = parseInt(event.key) - 1;
+      const presetBtn = this.elements.presetButtons[presetIndex];
+      if (presetBtn) {
+        event.preventDefault();
+        presetBtn.click();
+      }
+    }
+  }
+
+  private async updateTimeEstimate(speed: number | null = null) {
+    try {
+      // Get current selection or playing text
+      const response = await chrome.runtime.sendMessage({
+        type: MessageType.GET_CURRENT_TEXT_LENGTH
+      });
+      
+      if (response && response.length > 0) {
+        const effectiveSpeed = speed || this.currentSpeed;
+        const timeInfo = this.calculateReadingTime(response.length, effectiveSpeed);
+        
+        this.elements.timeEstimate.textContent = timeInfo.formatted;
+        this.elements.readingTimeDiv.style.display = 'block';
+      } else {
+        this.elements.readingTimeDiv.style.display = 'none';
+      }
+    } catch (error) {
+      debugLog('Error updating time estimate:', error);
+    }
+  }
+
+  private calculateReadingTime(characterCount: number, speed: number) {
+    const baseWPM = 150; // Average words per minute
+    const avgWordLength = 5; // Average characters per word
+    
+    const words = characterCount / avgWordLength;
+    const minutes = words / (baseWPM * speed);
+    
+    return {
+      minutes: minutes,
+      formatted: this.formatReadingTime(minutes)
+    };
+  }
+
+  private formatReadingTime(minutes: number): string {
+    if (minutes < 1) {
+      return `${Math.round(minutes * 60)}s`;
+    } else if (minutes < 60) {
+      return `${Math.round(minutes)}m`;
+    } else {
+      const hours = Math.floor(minutes / 60);
+      const mins = Math.round(minutes % 60);
+      return `${hours}h ${mins}m`;
+    }
+  }
+
+  private showSpeedInitializationError(error: string) {
+    debugLog('Popup: Showing speed initialization error:', error);
+    
+    // Use local fallback instead of completely disabling
+    this.enableLocalSpeedControl();
+    
+    // Show temporary error message with retry option
+    this.showTemporaryMessage('Speed control using local fallback. Retrying background connection...');
+    
+    // Retry background connection after a delay
+    setTimeout(() => {
+      this.initializeSpeedManager().catch(() => {
+        debugLog('Background retry failed, continuing with local fallback');
+      });
+    }, 3000);
+  }
+
+  private enableLocalSpeedControl() {
+    // Enable slider with local-only speed control
+    this.elements.speedSlider.disabled = false;
+    this.elements.speedUpBtn.disabled = false;
+    this.elements.speedDownBtn.disabled = false;
+    this.elements.speedSlider.style.opacity = '1';
+    
+    // Try to get actual current speed from background before using fallback
+    chrome.runtime.sendMessage({ type: MessageType.GET_SPEED_INFO })
+      .then(response => {
+        if (response && response.speedInfo) {
+          debugLog('Got current speed from background for fallback mode:', response.speedInfo);
+          this.updateSpeedUI(response.speedInfo);
+        } else {
+          // Use fallback values only if we can't get current speed
+          this.applyFallbackSpeedValues();
+        }
+      })
+      .catch(() => {
+        this.applyFallbackSpeedValues();
+      });
+  }
+
+  private applyFallbackSpeedValues() {
+    const fallbackSpeedInfo: SpeedInfo = {
+      current: 1.0,
+      default: 1.0,
+      min: 0.5,
+      max: 3.0,
+      step: 0.1,
+      presets: [0.75, 1.0, 1.25, 1.5, 2.0],
+      formatted: '1.0x'
+    };
+    
+    this.updateSpeedUI(fallbackSpeedInfo);
+    debugLog('Speed control enabled with local fallback values');
+  }
+
   private showTemporaryMessage(message: string) {
     const originalText = this.elements.ttsStatus.querySelector('.status-text')!.textContent;
     const originalClass = this.elements.ttsStatus.className;
@@ -779,6 +1197,180 @@ class PopupController {
       this.elements.ttsStatus.querySelector('.status-text')!.textContent = originalText || '';
       this.elements.ttsStatus.className = originalClass;
     }, 2000);
+  }
+
+  // Volume control methods
+  private async initializeVolumeManager() {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: MessageType.GET_VOLUME_STATE
+      });
+      
+      if (response && response.data) {
+        this.volumeState.volume = response.data.volume || 70;
+        this.volumeState.isMuted = response.data.isMuted || false;
+        this.volumeState.domainVolume = response.data.domainVolume || null;
+        this.updateVolumeUI();
+      }
+    } catch (error) {
+      debugLog('Error initializing volume manager:', error);
+    }
+  }
+
+  private updateVolumeUI() {
+    // Update slider
+    this.elements.volumeSlider.value = this.volumeState.volume.toString();
+    
+    // Update displays
+    const volumeText = this.volumeState.isMuted ? '0%' : `${this.volumeState.volume}%`;
+    this.elements.volumeValue.textContent = volumeText;
+    this.elements.volumePercentage.textContent = volumeText;
+    
+    // Update mute button
+    this.elements.muteBtn.textContent = this.volumeState.isMuted ? '🔇' : '🔊';
+    
+    // Update preset buttons
+    this.updateVolumePresetButtons(this.volumeState.volume);
+    
+    // Update domain indicator
+    if (this.volumeState.domainVolume !== null) {
+      this.elements.domainVolumeIndicator.style.display = 'flex';
+    } else {
+      this.elements.domainVolumeIndicator.style.display = 'none';
+    }
+  }
+
+  private updateVolumePresetButtons(currentVolume: number) {
+    this.elements.volumePresetButtons.forEach(btn => {
+      const presetVolume = parseInt(btn.dataset.volume || '70');
+      if (Math.abs(presetVolume - currentVolume) < 5) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+  }
+
+  private handleVolumeSliderChange(event: Event) {
+    const volume = parseInt((event.target as HTMLInputElement).value);
+    
+    // Immediate UI feedback
+    this.elements.volumeValue.textContent = `${volume}%`;
+    this.elements.volumePercentage.textContent = `${volume}%`;
+    this.updateVolumePresetButtons(volume);
+    
+    // Throttled volume updates during drag
+    this.scheduleVolumeUpdate(volume);
+  }
+
+  private scheduleVolumeUpdate(volume: number) {
+    // Clear any pending volume update
+    if (this.volumeUpdateTimeout !== null) {
+      clearTimeout(this.volumeUpdateTimeout);
+    }
+    
+    // Schedule new volume update with throttling
+    this.volumeUpdateTimeout = window.setTimeout(async () => {
+      try {
+        await chrome.runtime.sendMessage({
+          type: MessageType.SET_VOLUME,
+          volume: volume,
+          options: { smooth: true }
+        });
+        this.volumeState.volume = volume;
+        debugLog('Real-time volume update:', volume);
+      } catch (error) {
+        debugLog('Real-time volume update failed:', error);
+      }
+      this.volumeUpdateTimeout = null;
+    }, this.volumeUpdateDelay);
+  }
+
+  private async handleVolumeSliderCommit(event: Event) {
+    const volume = parseInt((event.target as HTMLInputElement).value);
+    
+    // Clear any pending throttled update
+    if (this.volumeUpdateTimeout !== null) {
+      clearTimeout(this.volumeUpdateTimeout);
+      this.volumeUpdateTimeout = null;
+    }
+    
+    // Final volume commit
+    this.volumeState.volume = volume;
+    await this.setVolume(volume);
+  }
+
+  private async setVolume(volume: number) {
+    try {
+      await chrome.runtime.sendMessage({
+        type: MessageType.SET_VOLUME,
+        volume: volume,
+        options: { smooth: true }
+      });
+      
+      this.showTemporaryMessage(`Volume set to ${volume}%`);
+    } catch (error) {
+      debugLog('Error setting volume:', error);
+    }
+  }
+
+  private async handleMuteToggle() {
+    try {
+      await chrome.runtime.sendMessage({
+        type: MessageType.TOGGLE_MUTE
+      });
+      
+      // Update UI based on response
+      await this.initializeVolumeManager();
+    } catch (error) {
+      debugLog('Error toggling mute:', error);
+    }
+  }
+
+  private async handleVolumePresetClick(event: Event) {
+    const volume = parseInt((event.target as HTMLButtonElement).dataset.volume || '70');
+    
+    // Update UI immediately
+    this.elements.volumeSlider.value = volume.toString();
+    this.elements.volumeValue.textContent = `${volume}%`;
+    this.elements.volumePercentage.textContent = `${volume}%`;
+    this.updateVolumePresetButtons(volume);
+    
+    await this.setVolume(volume);
+  }
+
+  private async handleClearDomainVolume() {
+    try {
+      await chrome.runtime.sendMessage({
+        type: MessageType.CLEAR_DOMAIN_VOLUME
+      });
+      
+      this.volumeState.domainVolume = null;
+      this.elements.domainVolumeIndicator.style.display = 'none';
+      this.showTemporaryMessage('Domain volume cleared');
+    } catch (error) {
+      debugLog('Error clearing domain volume:', error);
+    }
+  }
+
+  private handleVolumeChanged(message: { volume?: number; isMuted?: boolean }): void {
+    if (message.volume !== undefined) {
+      this.volumeState.volume = message.volume;
+      this.volumeState.isMuted = message.isMuted || false;
+      this.updateVolumeUI();
+    }
+  }
+
+  // Cleanup method to prevent memory leaks
+  public cleanup() {
+    if (this.speedUpdateTimeout !== null) {
+      clearTimeout(this.speedUpdateTimeout);
+      this.speedUpdateTimeout = null;
+    }
+    if (this.volumeUpdateTimeout !== null) {
+      clearTimeout(this.volumeUpdateTimeout);
+      this.volumeUpdateTimeout = null;
+    }
   }
 }
 

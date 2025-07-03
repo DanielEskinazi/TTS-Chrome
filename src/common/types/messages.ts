@@ -46,17 +46,46 @@ export enum MessageType {
   PREVIEW_VOICE = 'PREVIEW_VOICE',
   VOICE_CHANGED = 'VOICE_CHANGED',
   UPDATE_VOICE_DATA = 'UPDATE_VOICE_DATA',
+  
+  // Speed control
+  GET_SPEED_INFO = 'GET_SPEED_INFO',
+  SET_SPEED = 'SET_SPEED',
+  INCREMENT_SPEED = 'INCREMENT_SPEED',
+  DECREMENT_SPEED = 'DECREMENT_SPEED',
+  SPEED_CHANGED = 'SPEED_CHANGED',
+  CHANGE_SPEED = 'CHANGE_SPEED',
+  GET_CURRENT_TEXT_LENGTH = 'GET_CURRENT_TEXT_LENGTH',
+  
+  // Volume control
+  SET_VOLUME = 'SET_VOLUME',
+  GET_VOLUME_STATE = 'GET_VOLUME_STATE',
+  MUTE = 'MUTE',
+  UNMUTE = 'UNMUTE',
+  TOGGLE_MUTE = 'TOGGLE_MUTE',
+  ADJUST_VOLUME = 'ADJUST_VOLUME',
+  SET_DOMAIN_VOLUME = 'SET_DOMAIN_VOLUME',
+  APPLY_PRESET = 'APPLY_PRESET',
+  CLEAR_DOMAIN_VOLUME = 'CLEAR_DOMAIN_VOLUME',
+  VOLUME_CHANGED = 'VOLUME_CHANGED',
+  UPDATE_TTS_VOLUME = 'UPDATE_TTS_VOLUME',
+  
+  // Connection health
+  PING = 'PING',
 }
 
 export interface Message {
   type: MessageType;
   payload?: Record<string, unknown>;
+  data?: Record<string, unknown>;
 }
 
 export interface MessageResponse {
   success: boolean;
   data?: Record<string, unknown>;
   error?: string;
+  pong?: boolean;
+  initialized?: boolean;
+  speedInfo?: Record<string, unknown>;
 }
 
 // Type guards
