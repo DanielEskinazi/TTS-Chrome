@@ -501,6 +501,10 @@ class TextSelectionHandler {
 
   public handleMessage(request: Message, _sender: chrome.runtime.MessageSender, sendResponse: (response?: MessageResponse) => void): boolean | void {
     switch (request.type) {
+      case MessageType.PING:
+        sendResponse({ success: true, pong: true });
+        break;
+        
       case MessageType.GET_SELECTION:
         sendResponse({
           success: true,
@@ -743,7 +747,7 @@ class TextSelectionHandler {
     this.clearSelection();
   }
 
-  private markAsDisconnected() {
+  public markAsDisconnected(): void {
     // Mark extension as disconnected to prevent further communication attempts
     // This helps avoid recursive errors when background is unavailable
     if (!this.isDisconnected) {
@@ -839,7 +843,7 @@ class TextSelectionHandler {
     }
   }
 
-  private scheduleReconnection(delay: number): void {
+  public scheduleReconnection(delay: number): void {
     if (this.reconnectionTimeout) {
       clearTimeout(this.reconnectionTimeout);
     }
@@ -1348,6 +1352,7 @@ class ContentScriptController {
   private maxReconnectionAttempts: number = 15; // Fewer attempts than TextSelectionHandler
   private reconnectionTimeout: NodeJS.Timeout | null = null;
   private isReconnecting: boolean = false;
+  private persistentPort: chrome.runtime.Port | null = null;
 
   constructor() {
     this.textSelectionHandler = new TextSelectionHandler();
@@ -1373,6 +1378,12 @@ class ContentScriptController {
       this.reconnectionTimeout = null;
     }
     
+    // Clean up persistent port
+    if (this.persistentPort) {
+      this.persistentPort.disconnect();
+      this.persistentPort = null;
+    }
+    
     // Clean up text selection handler
     if (this.textSelectionHandler) {
       this.textSelectionHandler.cleanup();
@@ -1385,6 +1396,51 @@ class ContentScriptController {
     
     devLog('[TTS] ContentScriptController cleanup completed');
   }
+  
+  private establishPersistentConnection(): void {
+    try {
+      // Create a persistent port connection
+      this.persistentPort = chrome.runtime.connect({ name: 'content-script-port' });
+      
+      this.persistentPort.onDisconnect.addListener(() => {
+        devLog('[TTS] Persistent port disconnected');
+        this.persistentPort = null;
+        this.handleDisconnection();
+      });
+      
+      // Send periodic pings through the port
+      const pingInterval = setInterval(() => {
+        if (this.persistentPort) {
+          try {
+            this.persistentPort.postMessage({ type: 'ping' });
+          } catch (error) {
+            clearInterval(pingInterval);
+          }
+        } else {
+          clearInterval(pingInterval);
+        }
+      }, 25000); // Ping every 25 seconds
+      
+      devLog('[TTS] Persistent connection established');
+    } catch (error) {
+      devLog('[TTS] Failed to establish persistent connection:', error);
+    }
+  }
+  
+  private handleDisconnection(): void {
+    if (!this.isDisconnected) {
+      this.isDisconnected = true;
+      devLog('[TTS] Background connection lost, attempting to reconnect...');
+      this.scheduleReconnection(1000);
+    }
+  }
+  
+  private scheduleReconnection(delay: number): void {
+    // Delegate to TextSelectionHandler which has the main reconnection logic
+    if (this.textSelectionHandler) {
+      this.textSelectionHandler.scheduleReconnection(delay);
+    }
+  }
 
   private async initialize() {
     devLog('Content script initialized on:', window.location.href);
@@ -1392,6 +1448,9 @@ class ContentScriptController {
     // Setup event listeners and styles immediately - don't wait for voice enumeration
     this.setupEventListeners();
     this.injectStyles();
+    
+    // Establish persistent connection for context recovery
+    this.establishPersistentConnection();
 
     // Notify background that content script is ready (immediately functional)
     this.safeMessageToBackground({
@@ -1765,85 +1824,6 @@ class ContentScriptController {
     }
   }
 
-  private markAsDisconnected() {
-    // Mark extension as disconnected to prevent further communication attempts
-    if (!this.isDisconnected) {
-      this.isDisconnected = true;
-      this.reconnectionAttempts = 0;
-      devLog('[TTS] ContentScriptController marked as disconnected due to context invalidation');
-      
-      // Clear any pending reconnection attempts
-      if (this.reconnectionTimeout) {
-        clearTimeout(this.reconnectionTimeout);
-      }
-      
-      // Try to reconnect with minimal delay
-      this.scheduleReconnection(500);
-    }
-  }
-
-  private async attemptReconnection(): Promise<void> {
-    if (this.isReconnecting) {
-      devLog('[TTS] ContentScriptController reconnection already in progress');
-      return;
-    }
-
-    this.isReconnecting = true;
-    this.reconnectionAttempts++;
-    
-    devLog(`[TTS] ContentScriptController reconnection attempt ${this.reconnectionAttempts}/${this.maxReconnectionAttempts}`);
-    
-    try {
-      // Clear any existing timeout
-      if (this.reconnectionTimeout) {
-        clearTimeout(this.reconnectionTimeout);
-        this.reconnectionTimeout = null;
-      }
-
-      // Try a simple ping to background with timeout
-      const pingPromise = chrome.runtime.sendMessage({ type: MessageType.PING });
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Ping timeout')), 2000)
-      );
-      
-      const response = await Promise.race([pingPromise, timeoutPromise]) as MessageResponse;
-      
-      if (response && response.pong) {
-        // Success! Extension is reconnected
-        this.isDisconnected = false;
-        this.isReconnecting = false;
-        this.reconnectionAttempts = 0;
-        devLog('[TTS] ContentScriptController successfully reconnected to background');
-      } else {
-        throw new Error('Invalid ping response');
-      }
-    } catch (error) {
-      this.isReconnecting = false;
-      
-      if (this.reconnectionAttempts >= this.maxReconnectionAttempts) {
-        devLog('[TTS] ContentScriptController max reconnection attempts reached');
-        return;
-      }
-      
-      // Calculate exponential backoff delay
-      const baseDelay = 500;
-      const exponentialDelay = Math.min(baseDelay * Math.pow(2, this.reconnectionAttempts - 1), 10000);
-      
-      devLog(`[TTS] ContentScriptController reconnection failed, retrying in ${exponentialDelay}ms`);
-      this.scheduleReconnection(exponentialDelay);
-    }
-  }
-
-  private scheduleReconnection(delay: number): void {
-    if (this.reconnectionTimeout) {
-      clearTimeout(this.reconnectionTimeout);
-    }
-    
-    this.reconnectionTimeout = setTimeout(() => {
-      this.attemptReconnection();
-    }, delay);
-  }
-
   private safeMessageToBackground(message: Message): Promise<MessageResponse> {
     // Safe wrapper for chrome.runtime.sendMessage that handles context invalidation
     if (this.isDisconnected) {
@@ -1857,7 +1837,9 @@ class ContentScriptController {
                             error.message.includes('Could not establish connection');
       
       if (isContextError) {
-        this.markAsDisconnected();
+        if (this.textSelectionHandler) {
+          this.textSelectionHandler.markAsDisconnected();
+        }
         devLog('[TTS] ContentScriptController handling context invalidation error for:', message.type);
         return { success: false, error: 'Extension context invalidated' };
       }

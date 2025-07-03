@@ -1,3 +1,13 @@
+export interface SpeedInfo {
+  current: number;
+  default: number;
+  min: number;
+  max: number;
+  step: number;
+  presets: number[];
+  formatted: string;
+}
+
 export class SpeedManager {
   private currentSpeed: number = 1.0;
   private defaultSpeed: number = 1.0;

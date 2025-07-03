@@ -2,6 +2,9 @@ import { MessageType, Message, MessageResponse } from '@common/types/messages';
 import { VoiceManager, VoiceInfo } from '@common/voice-manager';
 import { SpeedManager } from './speedManager';
 import { VolumeControlService } from './services/volume-control.service';
+import { MessageQueueService } from './services/message-queue.service';
+import { StateManager } from './services/state-manager.service';
+import { ContextRecoveryService } from './services/context-recovery.service';
 // Temporary debug logging - replace devLog with console.log for debugging
 const debugLog = (...args: unknown[]) => {
   if (process.env.NODE_ENV === 'development') {
@@ -1315,6 +1318,9 @@ let ttsManager: TTSManager;
 let voiceManager: VoiceManager;
 let speedManager: SpeedManager;
 let volumeControlService: VolumeControlService;
+let messageQueueService: MessageQueueService;
+let stateManager: StateManager;
+let contextRecoveryService: ContextRecoveryService;
 
 let isInitialized = false;
 let isInitializing = false;
@@ -1357,6 +1363,27 @@ async function initializeExtension(): Promise<boolean> {
       debugLog('Initializing VolumeControlService...');
       volumeControlService = new VolumeControlService();
       debugLog('VolumeControlService ready');
+    }
+    
+    // Initialize message queue service
+    if (!messageQueueService) {
+      debugLog('Initializing MessageQueueService...');
+      messageQueueService = new MessageQueueService();
+      debugLog('MessageQueueService ready');
+    }
+    
+    // Initialize state manager
+    if (!stateManager) {
+      debugLog('Initializing StateManager...');
+      stateManager = new StateManager();
+      debugLog('StateManager ready');
+    }
+    
+    // Initialize context recovery service
+    if (!contextRecoveryService) {
+      debugLog('Initializing ContextRecoveryService...');
+      contextRecoveryService = new ContextRecoveryService();
+      debugLog('ContextRecoveryService ready');
     }
     
     // Initialize core managers with singleton pattern
@@ -1452,6 +1479,15 @@ chrome.runtime.onSuspend?.addListener(() => {
     });
     // Then cleanup listeners
     ttsManager.cleanup();
+  }
+  if (messageQueueService) {
+    messageQueueService.cleanup();
+  }
+  if (stateManager) {
+    stateManager.cleanup();
+  }
+  if (contextRecoveryService) {
+    contextRecoveryService.cleanup();
   }
   
   // Remove command listener
