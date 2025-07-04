@@ -92,7 +92,7 @@ class TextSelectionHandler {
     document.addEventListener('keydown', this.eventListeners.keydown);
     
     // Listen for messages from background script
-    chrome.runtime.onMessage.addListener(this.eventListeners.message as any);
+    chrome.runtime.onMessage.addListener(this.eventListeners.message as (message: unknown, sender: chrome.runtime.MessageSender, sendResponse: (response?: unknown) => void) => boolean | void);
     
     // Setup keyboard shortcuts
     this.setupKeyboardShortcuts();
@@ -122,7 +122,7 @@ class TextSelectionHandler {
       document.removeEventListener('keydown', this.eventListeners.keydown);
     }
     if (this.eventListeners.message) {
-      chrome.runtime.onMessage.removeListener(this.eventListeners.message as any);
+      chrome.runtime.onMessage.removeListener(this.eventListeners.message as (message: unknown, sender: chrome.runtime.MessageSender, sendResponse: (response?: unknown) => void) => boolean | void);
     }
     
     // Stop all monitoring and timeouts
@@ -574,7 +574,7 @@ class TextSelectionHandler {
       }
         
       case MessageType.UPDATE_TTS_VOLUME: {
-        const volume = (request as any).volume || (request.payload?.volume as number);
+        const volume = (request as { volume?: number }).volume || (request.payload?.volume as number);
         if (this._speechSynthesizer && typeof volume === 'number') {
           const success = this._speechSynthesizer.setVolume(volume);
           sendResponse({ success });

@@ -77,7 +77,7 @@ export class StateManager {
               changedKeys.add(key);
             }
           } else if (this.state[key as keyof TTSState] !== value) {
-            (this.state as any)[key] = value;
+            (this.state as unknown as Record<string, unknown>)[key] = value;
             changedKeys.add(key);
           }
         });
@@ -158,7 +158,7 @@ export class StateManager {
     }
     
     try {
-      const dataToStore: Record<string, any> = {};
+      const dataToStore: Record<string, unknown> = {};
       
       if (changedKeys.has('selectedVoice') && this.state.selectedVoice) {
         dataToStore.selectedVoice = {

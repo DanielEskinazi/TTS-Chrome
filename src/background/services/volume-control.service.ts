@@ -23,8 +23,8 @@ export class VolumeControlService implements IVolumeControlService {
     }
   };
 
-  private fadeInterval?: number;
-  private storageDebounceTimer?: number;
+  private fadeInterval?: NodeJS.Timeout;
+  private storageDebounceTimer?: NodeJS.Timeout;
 
   constructor() {
     console.log('[VolumeControl] Initializing VolumeControlService');
@@ -271,7 +271,7 @@ export class VolumeControlService implements IVolumeControlService {
     return new Promise((resolve) => {
       let currentStep = 0;
       
-      this.fadeInterval = window.setInterval(async () => {
+      this.fadeInterval = setInterval(async () => {
         currentStep++;
         const currentVolume = fromVolume + (volumeStep * currentStep);
         
@@ -359,7 +359,7 @@ export class VolumeControlService implements IVolumeControlService {
       clearTimeout(this.storageDebounceTimer);
     }
 
-    this.storageDebounceTimer = window.setTimeout(() => {
+    this.storageDebounceTimer = setTimeout(() => {
       this.saveVolumeState();
     }, VOLUME_CONSTRAINTS.VOLUME_CHANGE_DEBOUNCE);
   }

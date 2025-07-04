@@ -1,4 +1,4 @@
-import { MessageType, Message } from '@common/types/messages';
+import { MessageType } from '@common/types/messages';
 
 interface TabState {
   tabId: number;

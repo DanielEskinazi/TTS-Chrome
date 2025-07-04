@@ -28,36 +28,49 @@ const debugLog = (...args: unknown[]) => {
 
 class PopupController {
   private elements: {
-    speakPage: HTMLButtonElement;
-    testText: HTMLTextAreaElement;
-    testSpeak: HTMLButtonElement;
-    openOptions: HTMLAnchorElement;
-    status: HTMLDivElement;
-    fontSizeValue: HTMLSpanElement;
-    themeValue: HTMLSpanElement;
+    // Status elements
     ttsStatus: HTMLDivElement;
+    statusIcon: HTMLDivElement;
+    statusText: HTMLDivElement;
     currentText: HTMLDivElement;
     textPreview: HTMLSpanElement;
-    playPauseBtn: HTMLButtonElement;
-    stopBtn: HTMLButtonElement;
-    forceStopBtn: HTMLButtonElement;
-    voiceSelect: HTMLSelectElement;
-    previewBtn: HTMLButtonElement;
     initStatus: HTMLDivElement;
-    speedSlider: HTMLInputElement;
-    speedValue: HTMLSpanElement;
-    speedUpBtn: HTMLButtonElement;
-    speedDownBtn: HTMLButtonElement;
+    
+    // Primary action
+    primaryActionBtn: HTMLButtonElement;
+    primaryIcon: HTMLSpanElement;
+    primaryText: HTMLSpanElement;
+    
+    // Voice selection
+    voiceSelect: HTMLSelectElement;
+    
+    // Speed control (presets only)
+    speedPresets: HTMLDivElement;
     presetButtons: NodeListOf<HTMLButtonElement>;
-    readingTimeDiv: HTMLDivElement;
-    timeEstimate: HTMLSpanElement;
-    volumeSlider: HTMLInputElement;
-    volumeValue: HTMLSpanElement;
-    volumePercentage: HTMLSpanElement;
+    
+    // Volume control (presets + mute)
     muteBtn: HTMLButtonElement;
+    muteIcon: HTMLSpanElement;
     volumePresetButtons: NodeListOf<HTMLButtonElement>;
     domainVolumeIndicator: HTMLDivElement;
     clearDomainVolumeBtn: HTMLButtonElement;
+    
+    // Advanced settings
+    advancedToggle: HTMLButtonElement;
+    toggleIcon: HTMLSpanElement;
+    advancedPanel: HTMLElement;
+    
+    // Advanced panel elements
+    speakPage: HTMLButtonElement;
+    stopBtn: HTMLButtonElement;
+    forceStopBtn: HTMLButtonElement;
+    testText: HTMLTextAreaElement;
+    testSpeak: HTMLButtonElement;
+    readingTimeDiv: HTMLDivElement;
+    timeEstimate: HTMLSpanElement;
+    shortcutsToggle: HTMLButtonElement;
+    shortcutsPanel: HTMLDivElement;
+    openOptions: HTMLAnchorElement;
   };
 
   private state = {
@@ -82,53 +95,58 @@ class PopupController {
   private isPreviewPlaying = false;
   private currentSpeed = 1.0;
   
-  // Speed slider throttling for real-time updates
-  private speedUpdateTimeout: number | null = null;
-  private readonly speedUpdateDelay = 150; // ms - throttle speed updates during drag
-  
   // Volume control state
   private volumeState = {
-    volume: 70,
+    volume: 75,
     isMuted: false,
     domainVolume: null as number | null
   };
-  
-  // Volume slider throttling
-  private volumeUpdateTimeout: number | null = null;
-  private readonly volumeUpdateDelay = 100; // ms - throttle volume updates during drag
 
   constructor() {
     this.elements = {
-      speakPage: document.getElementById('speakPage') as HTMLButtonElement,
-      testText: document.getElementById('testText') as HTMLTextAreaElement,
-      testSpeak: document.getElementById('testSpeak') as HTMLButtonElement,
-      openOptions: document.getElementById('openOptions') as HTMLAnchorElement,
-      status: document.getElementById('status') as HTMLDivElement,
-      fontSizeValue: document.getElementById('fontSizeValue') as HTMLSpanElement,
-      themeValue: document.getElementById('themeValue') as HTMLSpanElement,
+      // Status elements
       ttsStatus: document.getElementById('ttsStatus') as HTMLDivElement,
+      statusIcon: document.getElementById('statusIcon') as HTMLDivElement,
+      statusText: document.getElementById('statusText') as HTMLDivElement,
       currentText: document.getElementById('currentText') as HTMLDivElement,
       textPreview: document.getElementById('textPreview') as HTMLSpanElement,
-      playPauseBtn: document.getElementById('playPauseBtn') as HTMLButtonElement,
-      stopBtn: document.getElementById('stopBtn') as HTMLButtonElement,
-      forceStopBtn: document.getElementById('forceStopBtn') as HTMLButtonElement,
-      voiceSelect: document.getElementById('voiceSelect') as HTMLSelectElement,
-      previewBtn: document.getElementById('previewBtn') as HTMLButtonElement,
       initStatus: document.getElementById('initStatus') as HTMLDivElement,
-      speedSlider: document.getElementById('speedSlider') as HTMLInputElement,
-      speedValue: document.getElementById('speedValue') as HTMLSpanElement,
-      speedUpBtn: document.getElementById('speedUpBtn') as HTMLButtonElement,
-      speedDownBtn: document.getElementById('speedDownBtn') as HTMLButtonElement,
-      presetButtons: document.querySelectorAll('.preset-btn') as NodeListOf<HTMLButtonElement>,
-      readingTimeDiv: document.getElementById('readingTime') as HTMLDivElement,
-      timeEstimate: document.getElementById('timeEstimate') as HTMLSpanElement,
-      volumeSlider: document.getElementById('volumeSlider') as HTMLInputElement,
-      volumeValue: document.getElementById('volumeValue') as HTMLSpanElement,
-      volumePercentage: document.getElementById('volumePercentage') as HTMLSpanElement,
+      
+      // Primary action
+      primaryActionBtn: document.getElementById('primaryActionBtn') as HTMLButtonElement,
+      primaryIcon: document.getElementById('primaryIcon') as HTMLSpanElement,
+      primaryText: document.getElementById('primaryText') as HTMLSpanElement,
+      
+      // Voice selection
+      voiceSelect: document.getElementById('voiceSelect') as HTMLSelectElement,
+      
+      // Speed control (presets only)
+      speedPresets: document.getElementById('speedPresets') as HTMLDivElement,
+      presetButtons: document.querySelectorAll('#speedPresets .preset-btn') as NodeListOf<HTMLButtonElement>,
+      
+      // Volume control (presets + mute)
       muteBtn: document.getElementById('muteBtn') as HTMLButtonElement,
+      muteIcon: document.getElementById('muteIcon') as HTMLSpanElement,
       volumePresetButtons: document.querySelectorAll('.volume-preset-btn') as NodeListOf<HTMLButtonElement>,
       domainVolumeIndicator: document.getElementById('domainVolumeIndicator') as HTMLDivElement,
       clearDomainVolumeBtn: document.getElementById('clearDomainVolumeBtn') as HTMLButtonElement,
+      
+      // Advanced settings
+      advancedToggle: document.getElementById('advancedToggle') as HTMLButtonElement,
+      toggleIcon: document.getElementById('toggleIcon') as HTMLSpanElement,
+      advancedPanel: document.getElementById('advancedPanel') as HTMLElement,
+      
+      // Advanced panel elements
+      speakPage: document.getElementById('speakPage') as HTMLButtonElement,
+      stopBtn: document.getElementById('stopBtn') as HTMLButtonElement,
+      forceStopBtn: document.getElementById('forceStopBtn') as HTMLButtonElement,
+      testText: document.getElementById('testText') as HTMLTextAreaElement,
+      testSpeak: document.getElementById('testSpeak') as HTMLButtonElement,
+      readingTimeDiv: document.getElementById('readingTime') as HTMLDivElement,
+      timeEstimate: document.getElementById('timeEstimate') as HTMLSpanElement,
+      shortcutsToggle: document.getElementById('shortcutsToggle') as HTMLButtonElement,
+      shortcutsPanel: document.getElementById('shortcutsPanel') as HTMLDivElement,
+      openOptions: document.getElementById('openOptions') as HTMLAnchorElement,
     };
 
     this.initialize();
@@ -404,36 +422,36 @@ class PopupController {
   }
 
   private setupEventListeners() {
+    // Primary action button
+    this.elements.primaryActionBtn.addEventListener('click', () => this.handlePrimaryAction());
+    
+    // Voice selection
+    this.elements.voiceSelect.addEventListener('change', () => this.handleVoiceChange());
+    
+    // Speed preset buttons
+    this.elements.presetButtons.forEach(btn => {
+      btn.addEventListener('click', this.handleSpeedPresetClick.bind(this));
+    });
+    
+    // Volume controls
+    this.elements.muteBtn.addEventListener('click', this.handleMuteToggle.bind(this));
+    this.elements.volumePresetButtons.forEach(btn => {
+      btn.addEventListener('click', this.handleVolumePresetClick.bind(this));
+    });
+    this.elements.clearDomainVolumeBtn.addEventListener('click', this.handleClearDomainVolume.bind(this));
+    
+    // Advanced settings toggle
+    this.elements.advancedToggle.addEventListener('click', () => this.toggleAdvancedPanel());
+    
+    // Advanced panel elements
     this.elements.speakPage.addEventListener('click', () => this.speakCurrentPage());
-    this.elements.testSpeak.addEventListener('click', () => this.testSpeech());
-    this.elements.playPauseBtn.addEventListener('click', () => this.handlePlayPause());
     this.elements.stopBtn.addEventListener('click', () => this.handleStop());
     this.elements.forceStopBtn.addEventListener('click', () => this.handleForceStop());
-    this.elements.voiceSelect.addEventListener('change', () => this.handleVoiceChange());
-    this.elements.previewBtn.addEventListener('click', () => this.handlePreviewVoice());
+    this.elements.testSpeak.addEventListener('click', () => this.testSpeech());
+    this.elements.shortcutsToggle.addEventListener('click', () => this.toggleShortcutsPanel());
     this.elements.openOptions.addEventListener('click', (e) => {
       e.preventDefault();
       chrome.runtime.openOptionsPage();
-    });
-
-    // Speed control listeners
-    this.elements.speedSlider.addEventListener('input', this.handleSpeedSliderChange.bind(this));
-    this.elements.speedSlider.addEventListener('change', this.handleSpeedSliderCommit.bind(this));
-    this.elements.speedUpBtn.addEventListener('click', this.handleSpeedUp.bind(this));
-    this.elements.speedDownBtn.addEventListener('click', this.handleSpeedDown.bind(this));
-    
-    this.elements.presetButtons.forEach(btn => {
-      btn.addEventListener('click', this.handlePresetClick.bind(this));
-    });
-    
-    // Volume control listeners
-    this.elements.volumeSlider.addEventListener('input', this.handleVolumeSliderChange.bind(this));
-    this.elements.volumeSlider.addEventListener('change', this.handleVolumeSliderCommit.bind(this));
-    this.elements.muteBtn.addEventListener('click', this.handleMuteToggle.bind(this));
-    this.elements.clearDomainVolumeBtn.addEventListener('click', this.handleClearDomainVolume.bind(this));
-    
-    this.elements.volumePresetButtons.forEach(btn => {
-      btn.addEventListener('click', this.handleVolumePresetClick.bind(this));
     });
     
     // Keyboard shortcuts
@@ -603,26 +621,57 @@ class PopupController {
     this.updateTTSUI();
   }
 
-  private async handlePlayPause() {
+  private async handlePrimaryAction() {
     try {
-      this.elements.playPauseBtn.disabled = true;
+      this.elements.primaryActionBtn.disabled = true;
 
       if (this.ttsState.isPaused || this.ttsState.isPlaying) {
+        // If TTS is active, toggle pause
         await chrome.runtime.sendMessage({
           type: MessageType.TOGGLE_PAUSE_TTS,
           payload: { source: 'popup' },
         });
+      } else {
+        // If TTS is not active, start speaking selected text or prompt user
+        await this.startSpeakingSelectedText();
       }
 
       // UI will be updated via message listener
     } catch (error) {
-      debugLog('Error toggling pause:', error);
-      this.showError('Failed to toggle pause');
+      debugLog('Error in primary action:', error);
+      this.showError('Failed to perform action');
     } finally {
       // Re-enable button after a short delay
       setTimeout(() => {
-        this.elements.playPauseBtn.disabled = false;
+        this.elements.primaryActionBtn.disabled = false;
       }, 200);
+    }
+  }
+
+  private async startSpeakingSelectedText() {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    if (tab.id) {
+      try {
+        // First, try to get selected text
+        const response = await chrome.tabs.sendMessage(tab.id, {
+          type: MessageType.GET_SELECTION,
+        });
+
+        if (response && response.text && response.text.trim()) {
+          // If we have selected text, speak it
+          await chrome.tabs.sendMessage(tab.id, {
+            type: MessageType.SPEAK_SELECTION,
+            payload: { text: response.text },
+          });
+        } else {
+          // If no text is selected, show helpful message
+          this.showTemporaryMessage('Select text on the page to start speaking');
+        }
+      } catch (error) {
+        debugLog('Error getting selected text:', error);
+        this.showError('No text selected. Please select text on the page.');
+      }
     }
   }
 
@@ -671,12 +720,13 @@ class PopupController {
       currentText: this.ttsState.currentText ? this.ttsState.currentText.substring(0, 50) + '...' : null
     });
 
-    // Update TTS status display
+    // Update status indicator
     if (this.ttsState.isPaused) {
       debugLog('[updateTTSUI] Entering PAUSED condition');
-      this.elements.ttsStatus.querySelector('.status-text')!.textContent = 'TTS is paused';
-      this.elements.ttsStatus.className = 'status-card paused';
-      this.updatePlayPauseButton('resume');
+      this.elements.statusIcon.textContent = '⏸️';
+      this.elements.statusText.textContent = 'Paused';
+      this.elements.ttsStatus.className = 'status-indicator paused';
+      this.updatePrimaryButton('resume');
 
       // Show current text if available
       if (this.ttsState.currentText) {
@@ -684,9 +734,11 @@ class PopupController {
       }
     } else if (this.ttsState.isPlaying) {
       debugLog('[updateTTSUI] Entering PLAYING condition');
-      this.elements.ttsStatus.querySelector('.status-text')!.textContent = 'TTS is playing';
-      this.elements.ttsStatus.className = 'status-card playing';
-      this.updatePlayPauseButton('pause');
+      this.elements.statusIcon.textContent = '🔊';
+      this.elements.statusText.textContent = 'Speaking...';
+      this.elements.ttsStatus.className = 'status-indicator speaking';
+      this.elements.statusIcon.classList.add('speaking'); // For animation
+      this.updatePrimaryButton('pause');
 
       // Show current text if available
       if (this.ttsState.currentText) {
@@ -694,36 +746,40 @@ class PopupController {
       }
     } else {
       debugLog('[updateTTSUI] Entering STOPPED condition');
-      this.elements.ttsStatus.querySelector('.status-text')!.textContent = 'TTS is not active';
-      this.elements.ttsStatus.className = 'status-card stopped';
-      this.updatePlayPauseButton('play');
+      this.elements.statusIcon.textContent = '🟢';
+      this.elements.statusText.textContent = 'Ready to speak';
+      this.elements.ttsStatus.className = 'status-indicator ready';
+      this.elements.statusIcon.classList.remove('speaking');
+      this.updatePrimaryButton('speak');
       this.hideCurrentText();
     }
 
     // Update button states
-    this.elements.playPauseBtn.disabled = !(this.ttsState.isPlaying || this.ttsState.isPaused);
+    this.elements.primaryActionBtn.disabled = false; // Always enabled, handles states internally
     this.elements.stopBtn.disabled = !(this.ttsState.isPlaying || this.ttsState.isPaused);
     this.elements.forceStopBtn.disabled = !(this.ttsState.isPlaying || this.ttsState.isPaused);
   }
 
-  private updatePlayPauseButton(mode: 'play' | 'pause' | 'resume') {
-    debugLog('[updatePlayPauseButton] Setting button mode to:', mode);
+  private updatePrimaryButton(mode: 'speak' | 'pause' | 'resume') {
+    debugLog('[updatePrimaryButton] Setting button mode to:', mode);
     
-    const iconSpan = this.elements.playPauseBtn.querySelector('.btn-icon') as HTMLSpanElement;
-    const textSpan = this.elements.playPauseBtn.querySelector('.btn-text') as HTMLSpanElement;
-
+    // Remove existing state classes
+    this.elements.primaryActionBtn.classList.remove('speaking', 'paused');
+    
     switch (mode) {
-      case 'play':
-        iconSpan.textContent = '▶️';
-        textSpan.textContent = 'Play';
+      case 'speak':
+        this.elements.primaryIcon.textContent = '▶️';
+        this.elements.primaryText.textContent = 'Speak';
         break;
       case 'pause':
-        iconSpan.textContent = '⏸️';
-        textSpan.textContent = 'Pause';
+        this.elements.primaryIcon.textContent = '⏸️';
+        this.elements.primaryText.textContent = 'Pause';
+        this.elements.primaryActionBtn.classList.add('speaking');
         break;
       case 'resume':
-        iconSpan.textContent = '▶️';
-        textSpan.textContent = 'Resume';
+        this.elements.primaryIcon.textContent = '▶️';
+        this.elements.primaryText.textContent = 'Resume';
+        this.elements.primaryActionBtn.classList.add('paused');
         break;
     }
   }
@@ -746,8 +802,9 @@ class PopupController {
   }
 
   private showError(message: string) {
-    this.elements.ttsStatus.querySelector('.status-text')!.textContent = message;
-    this.elements.ttsStatus.className = 'status-card error';
+    this.elements.statusIcon.textContent = '❌';
+    this.elements.statusText.textContent = message;
+    this.elements.ttsStatus.className = 'status-indicator error';
 
     // Reset after 3 seconds
     setTimeout(() => {
@@ -755,12 +812,54 @@ class PopupController {
     }, 3000);
   }
 
-  private updateUI() {
-    // Update settings display
-    this.elements.fontSizeValue.textContent = `${this.state.fontSize}px`;
-    this.elements.themeValue.textContent =
-      this.state.theme.charAt(0).toUpperCase() + this.state.theme.slice(1);
+  private toggleAdvancedPanel() {
+    const isVisible = this.elements.advancedPanel.style.display !== 'none';
+    
+    if (isVisible) {
+      this.elements.advancedPanel.style.display = 'none';
+      this.elements.toggleIcon.textContent = '▼';
+      this.elements.toggleIcon.classList.remove('rotated');
+    } else {
+      this.elements.advancedPanel.style.display = 'block';
+      this.elements.toggleIcon.textContent = '▲';
+      this.elements.toggleIcon.classList.add('rotated');
+    }
+  }
 
+  private toggleShortcutsPanel() {
+    const isVisible = this.elements.shortcutsPanel.style.display !== 'none';
+    const icon = this.elements.shortcutsToggle.querySelector('.toggle-icon') as HTMLElement;
+    
+    if (isVisible) {
+      this.elements.shortcutsPanel.style.display = 'none';
+      icon.textContent = '▼';
+    } else {
+      this.elements.shortcutsPanel.style.display = 'block';
+      icon.textContent = '▲';
+    }
+  }
+
+  private async handleSpeedPresetClick(event: Event) {
+    const speed = parseFloat((event.target as HTMLButtonElement).dataset.speed || '1');
+    
+    // Immediately update UI for responsive feedback
+    this.updateSpeedPresetButtons(speed);
+    
+    await this.setSpeed(speed);
+  }
+
+  private updateSpeedPresetButtons(currentSpeed: number) {
+    this.elements.presetButtons.forEach(btn => {
+      const presetSpeed = parseFloat(btn.dataset.speed || '1');
+      if (Math.abs(presetSpeed - currentSpeed) < 0.05) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+  }
+
+  private updateUI() {
     // Update TTS UI
     this.updateTTSUI();
   }
@@ -844,7 +943,6 @@ class PopupController {
       // Stop preview
       speechSynthesis.cancel();
       this.isPreviewPlaying = false;
-      this.elements.previewBtn.textContent = '🔊';
       return;
     }
     
@@ -853,8 +951,6 @@ class PopupController {
     
     try {
       this.isPreviewPlaying = true;
-      this.elements.previewBtn.textContent = '⏹️';
-      this.elements.previewBtn.disabled = true;
       
       // Find the selected voice
       const voice = this.voiceData.voices.find(v => v.name === voiceName);
@@ -870,8 +966,6 @@ class PopupController {
       this.showError('Preview failed: ' + (error as Error).message);
     } finally {
       this.isPreviewPlaying = false;
-      this.elements.previewBtn.textContent = '🔊';
-      this.elements.previewBtn.disabled = false;
     }
   }
   
@@ -923,121 +1017,30 @@ class PopupController {
   private updateSpeedUI(speedInfo: SpeedInfo) {
     this.currentSpeed = speedInfo.current;
     
-    // Ensure controls are enabled when we have valid speed data
-    this.elements.speedSlider.disabled = false;
-    this.elements.speedSlider.style.opacity = '1';
-    
-    // Update slider
-    this.elements.speedSlider.value = speedInfo.current.toString();
-    this.elements.speedSlider.min = speedInfo.min.toString();
-    this.elements.speedSlider.max = speedInfo.max.toString();
-    this.elements.speedSlider.step = speedInfo.step.toString();
-    
-    // Update display
-    this.elements.speedValue.textContent = speedInfo.formatted;
-    
-    // Update preset buttons
-    this.updatePresetButtons(speedInfo.current);
-    
-    // Update button states based on current speed limits
-    this.elements.speedDownBtn.disabled = speedInfo.current <= speedInfo.min;
-    this.elements.speedUpBtn.disabled = speedInfo.current >= speedInfo.max;
+    // Update preset buttons only
+    this.updateSpeedPresetButtons(speedInfo.current);
   }
 
-  private updatePresetButtons(currentSpeed: number) {
-    this.elements.presetButtons.forEach(btn => {
-      const presetSpeed = parseFloat(btn.dataset.speed || '1');
-      if (Math.abs(presetSpeed - currentSpeed) < 0.05) {
-        btn.classList.add('active');
-      } else {
-        btn.classList.remove('active');
-      }
-    });
-  }
 
-  private handleSpeedSliderChange(event: Event) {
-    const speed = parseFloat((event.target as HTMLInputElement).value);
-    
-    // Immediate UI feedback
-    this.elements.speedValue.textContent = speed.toFixed(1) + 'x';
-    this.updatePresetButtons(speed);
-    this.updateTimeEstimate(speed);
-    
-    // Throttled real-time speed updates during drag
-    this.scheduleSpeedUpdate(speed);
-  }
-
-  private scheduleSpeedUpdate(speed: number) {
-    // Clear any pending speed update
-    if (this.speedUpdateTimeout !== null) {
-      clearTimeout(this.speedUpdateTimeout);
-    }
-    
-    // Schedule new speed update with throttling
-    this.speedUpdateTimeout = window.setTimeout(async () => {
-      try {
-        await chrome.runtime.sendMessage({
-          type: MessageType.SET_SPEED,
-          data: { speed: speed }
-        });
-        this.currentSpeed = speed;
-        debugLog('Real-time speed update:', speed);
-      } catch (error) {
-        debugLog('Real-time speed update failed, applying locally:', error);
-        // Apply locally even if background communication fails
-        this.currentSpeed = speed;
-      }
-      this.speedUpdateTimeout = null;
-    }, this.speedUpdateDelay);
-  }
-
-  private async handleSpeedSliderCommit(event: Event) {
-    const speed = parseFloat((event.target as HTMLInputElement).value);
-    
-    // Clear any pending throttled update since we're committing immediately
-    if (this.speedUpdateTimeout !== null) {
-      clearTimeout(this.speedUpdateTimeout);
-      this.speedUpdateTimeout = null;
-    }
-    
-    // Final speed commit on drag end
-    this.currentSpeed = speed;
-    await this.setSpeed(speed);
-  }
-
+  // Speed preset methods - simplified for preset-only approach
   private async handleSpeedUp() {
-    try {
-      await chrome.runtime.sendMessage({
-        type: MessageType.INCREMENT_SPEED
-      });
-      
-      await this.initializeSpeedManager();
-    } catch (error) {
-      debugLog('Error incrementing speed:', error);
+    const presets = [0.75, 1.0, 1.25, 1.5, 2.0];
+    const currentIndex = presets.findIndex(preset => Math.abs(preset - this.currentSpeed) < 0.05);
+    const nextIndex = Math.min(currentIndex + 1, presets.length - 1);
+    
+    if (nextIndex > currentIndex) {
+      await this.setSpeed(presets[nextIndex]);
     }
   }
 
   private async handleSpeedDown() {
-    try {
-      await chrome.runtime.sendMessage({
-        type: MessageType.DECREMENT_SPEED
-      });
-      
-      await this.initializeSpeedManager();
-    } catch (error) {
-      debugLog('Error decrementing speed:', error);
+    const presets = [0.75, 1.0, 1.25, 1.5, 2.0];
+    const currentIndex = presets.findIndex(preset => Math.abs(preset - this.currentSpeed) < 0.05);
+    const prevIndex = Math.max(currentIndex - 1, 0);
+    
+    if (prevIndex < currentIndex) {
+      await this.setSpeed(presets[prevIndex]);
     }
-  }
-
-  private async handlePresetClick(event: Event) {
-    const speed = parseFloat((event.target as HTMLButtonElement).dataset.speed || '1');
-    
-    // Immediately update UI for responsive feedback
-    this.updatePresetButtons(speed);
-    this.elements.speedSlider.value = speed.toString();
-    this.elements.speedValue.textContent = speed.toFixed(1) + 'x';
-    
-    await this.setSpeed(speed);
   }
 
   private async setSpeed(speed: number) {
@@ -1058,8 +1061,7 @@ class PopupController {
       
       // Fallback: Apply speed change locally
       this.currentSpeed = speed;
-      this.elements.speedValue.textContent = speed.toFixed(1) + 'x';
-      this.updatePresetButtons(speed);
+      this.updateSpeedPresetButtons(speed);
       
       // Show message indicating local-only mode
       this.showTemporaryMessage(`Speed set to ${speed}x (local mode)`);
@@ -1149,11 +1151,8 @@ class PopupController {
   }
 
   private enableLocalSpeedControl() {
-    // Enable slider with local-only speed control
-    this.elements.speedSlider.disabled = false;
-    this.elements.speedUpBtn.disabled = false;
-    this.elements.speedDownBtn.disabled = false;
-    this.elements.speedSlider.style.opacity = '1';
+    // Enable preset controls with local-only speed control
+    debugLog('Enabling local speed control with preset buttons');
     
     // Try to get actual current speed from background before using fallback
     chrome.runtime.sendMessage({ type: MessageType.GET_SPEED_INFO })
@@ -1218,16 +1217,8 @@ class PopupController {
   }
 
   private updateVolumeUI() {
-    // Update slider
-    this.elements.volumeSlider.value = this.volumeState.volume.toString();
-    
-    // Update displays
-    const volumeText = this.volumeState.isMuted ? '0%' : `${this.volumeState.volume}%`;
-    this.elements.volumeValue.textContent = volumeText;
-    this.elements.volumePercentage.textContent = volumeText;
-    
-    // Update mute button
-    this.elements.muteBtn.textContent = this.volumeState.isMuted ? '🔇' : '🔊';
+    // Update mute button icon
+    this.elements.muteIcon.textContent = this.volumeState.isMuted ? '🔇' : '🔊';
     
     // Update preset buttons
     this.updateVolumePresetButtons(this.volumeState.volume);
@@ -1251,54 +1242,6 @@ class PopupController {
     });
   }
 
-  private handleVolumeSliderChange(event: Event) {
-    const volume = parseInt((event.target as HTMLInputElement).value);
-    
-    // Immediate UI feedback
-    this.elements.volumeValue.textContent = `${volume}%`;
-    this.elements.volumePercentage.textContent = `${volume}%`;
-    this.updateVolumePresetButtons(volume);
-    
-    // Throttled volume updates during drag
-    this.scheduleVolumeUpdate(volume);
-  }
-
-  private scheduleVolumeUpdate(volume: number) {
-    // Clear any pending volume update
-    if (this.volumeUpdateTimeout !== null) {
-      clearTimeout(this.volumeUpdateTimeout);
-    }
-    
-    // Schedule new volume update with throttling
-    this.volumeUpdateTimeout = window.setTimeout(async () => {
-      try {
-        await chrome.runtime.sendMessage({
-          type: MessageType.SET_VOLUME,
-          volume: volume,
-          options: { smooth: true }
-        });
-        this.volumeState.volume = volume;
-        debugLog('Real-time volume update:', volume);
-      } catch (error) {
-        debugLog('Real-time volume update failed:', error);
-      }
-      this.volumeUpdateTimeout = null;
-    }, this.volumeUpdateDelay);
-  }
-
-  private async handleVolumeSliderCommit(event: Event) {
-    const volume = parseInt((event.target as HTMLInputElement).value);
-    
-    // Clear any pending throttled update
-    if (this.volumeUpdateTimeout !== null) {
-      clearTimeout(this.volumeUpdateTimeout);
-      this.volumeUpdateTimeout = null;
-    }
-    
-    // Final volume commit
-    this.volumeState.volume = volume;
-    await this.setVolume(volume);
-  }
 
   private async setVolume(volume: number) {
     try {
@@ -1328,13 +1271,11 @@ class PopupController {
   }
 
   private async handleVolumePresetClick(event: Event) {
-    const volume = parseInt((event.target as HTMLButtonElement).dataset.volume || '70');
+    const volume = parseInt((event.target as HTMLButtonElement).dataset.volume || '75');
     
     // Update UI immediately
-    this.elements.volumeSlider.value = volume.toString();
-    this.elements.volumeValue.textContent = `${volume}%`;
-    this.elements.volumePercentage.textContent = `${volume}%`;
     this.updateVolumePresetButtons(volume);
+    this.volumeState.volume = volume;
     
     await this.setVolume(volume);
   }
@@ -1363,13 +1304,9 @@ class PopupController {
 
   // Cleanup method to prevent memory leaks
   public cleanup() {
-    if (this.speedUpdateTimeout !== null) {
-      clearTimeout(this.speedUpdateTimeout);
-      this.speedUpdateTimeout = null;
-    }
-    if (this.volumeUpdateTimeout !== null) {
-      clearTimeout(this.volumeUpdateTimeout);
-      this.volumeUpdateTimeout = null;
+    // Cancel any ongoing speech synthesis
+    if (this.isPreviewPlaying) {
+      speechSynthesis.cancel();
     }
   }
 }

@@ -180,15 +180,6 @@ export class SpeechSynthesizer {
   }
   
   private implementFallbackStrategy(): void {
-    // Create a minimal fallback voice configuration
-    const fallbackVoice: Partial<SpeechSynthesisVoice> = {
-      name: 'System Default (Fallback)',
-      lang: navigator.language || 'en-US',
-      localService: true,
-      default: true,
-      voiceURI: 'system-default-fallback'
-    };
-    
     // Store fallback configuration
     this.availableVoices = [];
     this.defaultVoice = null;
